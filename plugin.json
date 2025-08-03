@@ -1,0 +1,21 @@
+{
+  "name": "HZ-syplugin-simple-search",
+  "author": "Hug-Zephyr",
+  "url": "https://github.com/Hug-Zephyr/HZ-syplugin-simple-search",
+  "version": "0.0.1",
+  "minAppVersion": "3.2.1",
+  "backends": ["all"],
+  "frontends": ["desktop", "desktop-window", "browser-desktop"],
+  "displayName": {
+    "default": "Simple Search HZ",
+    "zh_CN": "简搜"
+  },
+  "description": {
+    "default": "让你的搜索更简单, 更优雅, 参考简易搜索",
+    "zh_CN": "让你的搜索更简单, 更优雅, 参考简易搜索"
+  },
+  "readme": {
+    "default": "README.md",
+    "zh_CN": "README.md"
+  }
+}
