@@ -97,10 +97,13 @@ const SYT = {
     // 获取当前文档id
     // todo 不能通过聚焦来找
     get_data_id() {
-        // 一般来说, 鼠标聚焦的文档就是当前文档
-        let data_id = document.querySelector(`.layout__wnd--active[data-type="wnd"] .protyle-top>.protyle-title`)?.getAttribute("data-node-id");
+        // 在文档树那里找到选中的文档, 当做当前文档
+        let data_id = document.querySelector('.sy__file .b3-list-item--focus')?.getAttribute("data-node-id");
         if (data_id) return data_id;
         return null;
+        // 一般来说, 鼠标聚焦的文档就是当前文档
+        data_id = document.querySelector(`.layout__wnd--active[data-type="wnd"] .protyle-top>.protyle-title`)?.getAttribute("data-node-id");
+        if (data_id) return data_id;
         // 如果没有鼠标聚焦的文档, 就找所有的页签, 然后匹配最上方文档名
         const file_name = document.getElementById('drag')?.textContent;
         document.querySelectorAll(`[data-type="wnd"] .layout-tab-bar>[data-type="tab-header"]>.item__text`).forEach( (ele) => {
@@ -110,9 +113,6 @@ const SYT = {
                 }
             }
         )
-        // 走到这里, 说明没有打开文档, 就去文档树那里找
-        data_id = document.querySelector('.sy__file .b3-list-item--focus')?.getAttribute("data-node-id");
-        if (data_id) return data_id;
         // 如果文档树那里也没有聚焦, 就真的找不到了
         return null;
     },
