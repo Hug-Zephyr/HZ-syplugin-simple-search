@@ -250,6 +250,14 @@ function search_translator(arg) {
         if (help.type.length == 0) help.type = type;
         help.keywords = keywords;
         help.excluded = excludedKeywords;
+        if (Object.keys(help.block_type).length == 0) {
+            // 填充辅助信息的类型
+            for (const key in pageSearchTypes) {
+                if (pageSearchTypes[key] && blockTypeMapping[key] != "") {
+                    help.block_type[blockTypeMapping[key]] = blockHelpMap[blockTypeMapping[key]];
+                }
+            }
+        }
         return {type, val, keywords, help};
     }
 
@@ -319,7 +327,7 @@ function search_translator(arg) {
     // [拼接sql] 过滤块类型
     const _buildSqlTypeRlike = function() {
         // 去掉指定路径相关的选项
-        let sqlTypes = options.replace(/[kKe]/g, "").replace(/a[1-9]*/g, "");;
+        let sqlTypes = options.replace(/[kKe]/g, "").replace(/a[1-9]*/g, "");
         let sqlTypeRlike = "";
         if (!sqlTypes && !keywords.length && !excludedKeywords.length && custom_path.length) {
             return "true";
@@ -404,7 +412,6 @@ function search_translator(arg) {
                 const file_name = path_arr.pop();
                 file_sql = `type rlike '^[d]$' and content like '%${file_name}%' `
                 help.block_type['d'] = blockHelpMap['d'];
-                help.keywords.push(file_name);
                 keywords.push(file_name);
                 // 只有一个路径时, 直接返回
                 if (path_arr.length == 0) {
@@ -533,7 +540,6 @@ function search_translator(arg) {
             if (!options.length && !excludedKeywords.length) {
                 // 没有选项, 排除词, 自定义路径, 就是用原样输入
                 mylog('type: 关键词');
-                keywords = [input];
                 return "-w" + input;
             } else if (!options.length && excludedKeywords.length) {
                 // 只有排除词, 使用思源提供的查询语法
@@ -609,8 +615,12 @@ class SimpleSearchHZ extends siyuan.Plugin {
             </tr>
             <tr>
                 <td>${this.code("-t")}:表格块</td>
-                <td colspan="2">${this.code("-o")}:未完成的待办项(todo), 小写o</td>
-                <td>${this.code("-O")}:已完成的待办项, 大写o</td>
+                <td>${this.code("-m")}:数学公式块</td>
+                <td colspan="2">${this.code("-s")}:超级块(-s不能放到开头, 否则会和sql搜索冲突)</td>
+            </tr>
+            <tr>
+                <td colspan="2">${this.code("-o")}:小写o, 未完成的待办项(todo)</td>
+                <td colspan="2">${this.code("-O")}:大写o, 已完成的待办项(done)</td>
             </tr>
         <tr><td colspan="4">${this.strong("路径过滤: ")}</td></tr>
             <tr>
@@ -618,8 +628,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 <td colspan="2">${this.code("-a13")}:在第1和第3个笔记本里面搜索</td>
             </tr>
             <tr>
-                <td colspan="2">${this.code("-k")}:在当前文档搜索, 小写k</td>
-                <td colspan="2">${this.code("-K")}:在当前文档及子文档搜索, 大写k</td>
+                <td colspan="2">${this.code("-k")}:小写k, 在当前文档搜索</td>
+                <td colspan="2">${this.code("-K")}:大写k, 在当前文档及子文档搜索</td>
             </tr>
         <tr><td colspan="4">${this.strong("其他: ")}</td></tr>
             <tr><td colspan="4">* ${this.code("-")}"+要排除的关键词，排除指定关键词</td></tr>
