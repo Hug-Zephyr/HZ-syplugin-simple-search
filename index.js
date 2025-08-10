@@ -818,8 +818,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
     }
     // 禁用回车创建文档
     forbid_enter_create_file(searchNew){
-        // 没有data-type属性, 说明搜到了结果, 退出
-        if (!searchNew.getAttribute('data-type')) return;
+        // data-type不等于search-new, 说明搜到了结果, 退出
+        if (searchNew.getAttribute('data-type') != 'search-new') return;
         // 修改类型
         searchNew.dataset.type = 'simple-search-new-disabled';
         // 点击时恢复类型
@@ -939,7 +939,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
     onLayoutReady() {
         this.page = null; // 搜索框所在的页面, 所有搜索都在此元素下搜索, 用于隔离 搜索页签和搜索弹窗
         this.query = {type:"", val:"", keywords:[], help:{}}; // 解析后的内容 {type: 搜索类型, val: 搜索内容, keywords: 关键词}
-        this.textarea_sw = true;
+        this.textarea_sw = false;
 
         this.css_init();
         this.sy_event_init();
