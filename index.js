@@ -250,7 +250,7 @@ function search_translator(arg) {
         if (help.type.length == 0) help.type = type;
         help.keywords = keywords;
         help.excluded = excludedKeywords;
-        if (Object.keys(help.block_type).length == 0) {
+        if (Object.keys(help.block_type).length == 0 && type != '-s') {
             // 填充辅助信息的类型
             for (const key in pageSearchTypes) {
                 if (pageSearchTypes[key] && blockTypeMapping[key] != "") {
@@ -462,7 +462,6 @@ function search_translator(arg) {
                     help.path += `[${books[idx-1].name}],`
                 });
                 if (help.path == "笔记本: ") {
-                    help.path += "空";
                     sqlCurrentDoc = 'box="no_exist_box"';
                 }
                 else {
@@ -770,8 +769,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
     }
 
     get_analysis_result_html(help) {
-        const handle_arr = function(arr) {
-            if (!arr.length) return "空";
+        const handle_arr = function(arr, def) {
+            if (!arr.length) return def;
             return `(${arr.join('),(')})`;
             // arr.forEach(key => res += `(${key}),`);
         }
@@ -783,9 +782,9 @@ class SimpleSearchHZ extends siyuan.Plugin {
             "-e": "扩展搜索",
         }
         const type = typeMap[help.type] ? `${this.code(help.type)}${typeMap[help.type]}` : "识别错误"
-        let keywords = handle_arr(help.keywords);
-        let excluded = handle_arr(help.excluded);
-        let path = "空";
+        let keywords = handle_arr(help.keywords, '未识别');
+        let excluded = handle_arr(help.excluded, '空');
+        let path = "全部";
         if (help.path && help.custom_path.length) {
             path = `[${help.path}] and [(${help.custom_path.join(')or(')})]`;
         }
@@ -799,7 +798,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         help.custom_path.length ? `[${help.path}] and [(${help.custom_path.join(')or(')})]` : help.path;
         let block_type = "";
         Object.entries(help.block_type).forEach(([key, val]) => block_type += `[${this.code('-'+key)}${val}],`);
-        block_type = block_type ? block_type.slice(0, -1) : "空";
+        block_type = block_type ? block_type.slice(0, -1) : "未识别";
         return `<table id="simpleSearchAnalysisResTable"><tbody>
         <tr><td colspan="2">${this.strong("简搜: 解析结果")}</td></tr>
         <tr><td>搜索方式:</td><td>${type}</td></tr>
