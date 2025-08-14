@@ -725,12 +725,12 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // 增加 新功能图标
         this.handle_assit_icon();
 
-        // 监听搜索框的blur事件, 保存搜索框内容, 让下次搜索自动填充上次搜索内容, 思源会自动将k的内容填充到搜索框
-        const input_ele = detail.searchElement;
-        input_ele.addEventListener("blur", (event) => {
-            if (input_ele.value == "") return;
-            SYT.set_search_k(input_ele.value);
-        });
+        // // 监听搜索框的blur事件, 保存搜索框内容, 让下次搜索自动填充上次搜索内容, 思源会自动将k的内容填充到搜索框
+        // const input_ele = detail.searchElement;
+        // input_ele.addEventListener("blur", (event) => {
+        //     if (input_ele.value == "") return;
+        //     SYT.set_search_k(input_ele.value);
+        // });
 
         // // 搜索内容为空时, 填充上次搜索记录
         // const last_k = SYT.get_last_search_k();
@@ -943,7 +943,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.css_init();
         this.sy_event_init();
         // 重新加载后, 上次搜索历史会丢, 这里重新赋值一下
-        SYT.set_last_search_k();
+        // SYT.set_last_search_k();
 
         console.log("HZ simple search start...")
     }
