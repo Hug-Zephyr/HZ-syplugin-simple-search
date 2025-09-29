@@ -1,4 +1,3 @@
-// siyuan-plugin-simple-search-plus v1.0.0
 const siyuan = require("siyuan");
 
 function mylog(...args) {
@@ -155,9 +154,49 @@ const SYT = {
 // out: {type:搜索类型, val:搜索内容, keywords:关键词, help:帮助信息}
 function search_translator(arg) {
     // 搜索结果排序方式
-    const searchResSortSql = 'box ASC, hpath ASC, updated desc';
+    const TYPE_SORT      = 0; //类型
+    const CT_ASC         = 1; //创建时间升序
+    const CT_DESC        = 2; //创建时间降序
+    const UT_ASC         = 3; //更新时间升序
+    const UT_DESC        = 4; //更新时间降序
+    const RELEVANCE_ASC  = 6; //相关度升序
+    const RELEVANCE_DESC = 7; //相关度降序
+    const FILE_CONTENT   = 5; //原文内容顺序
+    const GROUP_FLAG     = -1; //指定按文档分组标记
+    const NOGROUP_FLAG   = -2; //指定不分组标记
+    const groupSortHelpMap = {
+        [TYPE_SORT]     : '类型排序',
+        [CT_ASC]        : '创建时间升序',
+        [CT_DESC]       : '创建时间降序',
+        [UT_ASC]        : '更新时间升序',
+        [UT_DESC]       : '更新时间降序',
+        [RELEVANCE_ASC] : '相关度升序(实际还是类型)',
+        [RELEVANCE_DESC]: '相关度降序(实际还是类型)',
+        [FILE_CONTENT]  : '原文内容顺序',
+    }
+    const nonGroupSortHelpMap = {
+        [TYPE_SORT]     : '类型排序',
+        [CT_ASC]        : '创建时间升序',
+        [CT_DESC]       : '创建时间降序',
+        [UT_ASC]        : '更新时间升序',
+        [UT_DESC]       : '更新时间降序',
+        [RELEVANCE_ASC] : '相关度升序(不支持)',
+        [RELEVANCE_DESC]: '相关度降序(不支持)',
+        [FILE_CONTENT]  : '原文内容顺序(不支持)',
+    }
+    const sortHelpMap = {
+        [TYPE_SORT]     : '类型排序',
+        [CT_ASC]        : '创建时间升序',
+        [CT_DESC]       : '创建时间降序',
+        [UT_ASC]        : '更新时间升序',
+        [UT_DESC]       : '更新时间降序',
+        [RELEVANCE_ASC] : '相关度升序',
+        [RELEVANCE_DESC]: '相关度降序',
+        [FILE_CONTENT]  : '原文内容顺序',
+    }
     // 块 默认排序方式
-    const defaultOrderBy = `order by case type 
+    const defaultOrderBy = `order by box ASC, hpath ASC `;
+    const defaultTypeOrderBy = `case type 
         when 'd' then 1
         when 'h' then 2
         when 'i' then 3
@@ -172,8 +211,7 @@ function search_translator(arg) {
         when 'widget' then 12
         when 'query_embed' then 13
         when 'iframe' then 14
-        end, ${searchResSortSql}
-    `;
+        end`;
     // 块排序
     const typeOrderMapping = {
         "d": " when 'd' then ",
@@ -219,15 +257,18 @@ function search_translator(arg) {
         'm': "公式块",
         'h': "标题块",
     }
-    const input = arg.query;
-    const id_path = arg.idPath;
-    const pageSearchTypes = arg.types;
+    const input           = arg.query;  // 输入的源内容
+    const pageSearchPath  = arg.idPath; // 页面配置的搜索路径
+    const pageSearchTypes = arg.types;  // 页面配置的搜索类型
 
-    let options = "";
-    let keywords = [];
-    const excludedKeywords = [];
-    let custom_path = [];
-    const help = {
+    let   options          = ""; // 解析出来的搜索类型
+    let   keywords         = []; // 解析出来的搜索关键词
+    const excludedKeywords = []; // 解析出来的排除的关键词
+    let   custom_path      = []; // 解析出来的自定义的搜索路径
+    let   custom_sort      = []; // 解析出来的自定义的排序方式
+    let   custom_group     = -1; // 解析出来的自定义的分组方式
+
+    const help             = {   // 帮助信息存储
         ret_str    : "",
         type       : "",
         keywords   : [],
@@ -258,9 +299,62 @@ function search_translator(arg) {
                 }
             }
         }
+        if (help.sort == '默认') {
+            help.sort = _getSortHelpPrefix() + sortHelpMap[arg.sort];
+        }
         return {type, val, keywords, help};
     }
+    const _parse_sort = function(str) {
+        if (str.at(-1) != '>' && str.at(-1) != '<') return false;
+        const patternMap = {
+            'type>': TYPE_SORT,
+            'type<': TYPE_SORT,
+            'ct>'  : CT_DESC,
+            'ct<'  : CT_ASC,
+            'ut>'  : UT_DESC,
+            'ut<'  : UT_ASC,
+            'cont>': FILE_CONTENT,
+            'cont<': FILE_CONTENT,
+            'g<'   : GROUP_FLAG,
+            'g>'   : GROUP_FLAG,
+            'nog<' : NOGROUP_FLAG,
+            'nog>' : NOGROUP_FLAG,
+        };
 
+        let index = 0;
+        const keys = Object.keys(patternMap);
+        while (index < str.length) {
+            let matched = false;
+            for (const key of keys) {
+                if (str.startsWith(key, index)) {
+                    switch(patternMap[key]) {
+                    case GROUP_FLAG:
+                        custom_group = 1;
+                        break;
+                    case NOGROUP_FLAG:
+                        custom_group = 0;
+                        break;
+                    default:
+                        custom_sort.push(patternMap[key]);
+                        break;
+                    }
+                    index += key.length;
+                    matched = true;
+                    break;
+                }
+            }
+            // 没有匹配到任何排序
+            if (!matched) {
+                return false; 
+            }
+        }
+        custom_sort = [...new Set(custom_sort)];
+        if (custom_group != -1) {
+            arg.group = custom_group;
+        }
+        // 成功匹配完整个字符串
+        return true;
+    }
     // 解析输入内容, 解析出 关键词, 排除的关键词, 搜索选项
     const _parseInput = function() {
         const inputItems = input.split(" ");
@@ -273,6 +367,8 @@ function search_translator(arg) {
                 excludedKeywords.push(item.slice(1));
             } else if (item.match(/^\/.+/)) {
                 custom_path.push(item);
+            } else if (_parse_sort(item)) {
+                continue;
             } else {
                 keywords.push(item);
             }
@@ -468,10 +564,10 @@ function search_translator(arg) {
                     help.path = help.path.slice(0, -1);
                 }
             }
-        } else if (id_path.length) {
+        } else if (pageSearchPath.length) {
             // 使用搜索页面上的搜索路径
             let filterPath = "";
-            for (let path of id_path) {
+            for (let path of pageSearchPath) {
                 let boxPath = "";
                 let filePath = "";
                 const idx = path.indexOf('/');
@@ -491,31 +587,103 @@ function search_translator(arg) {
         }
         return sqlCurrentDoc ? `(${sqlCurrentDoc})` : "true";
     }
-
-    // [拼接sql] 搜索结果排序方式
-    const _buildOrderByQuery = function() {
-        let sqlOrderBy = "order by case type";
-        let sqlTypes = options.replace(/[oOL1-6]/g, "");
-
-        if (sqlTypes !== "") {
+    const _getSortHelpPrefix = function() {
+        // 示例: [指定]按文档分组: [指定]
+        return `[${custom_group == -1 ? "页面配置" : "指定"}]${arg.group ? "按文档分组" : "不分组"}: [${custom_sort.length ? "指定" : "页面配置"}]`;
+    }
+    const _buildOrderByFromType = function(sort_e, sort_help=[]) {
+        if (sort_e != TYPE_SORT) {
+            sort_help.push(nonGroupSortHelpMap[sort_e]);
+        }
+        switch(sort_e) {
+        case TYPE_SORT:
+            // 按照输入的类型优先
+            let ret_sql = "case type";
+            let help_tmp = [];
+            let sqlTypes = options.replace(/[oOL1-6]/g, "");
+            if (sqlTypes == "") {
+                sort_help.push(nonGroupSortHelpMap[TYPE_SORT])
+                return defaultTypeOrderBy;
+            }
             for (let i = 0; i < sqlTypes.length; i++) {
                 if (typeOrderMapping[sqlTypes[i]]) {
-                    sqlOrderBy += typeOrderMapping[sqlTypes[i]] + i.toString();
+                    ret_sql += typeOrderMapping[sqlTypes[i]] + i.toString();
+                    help_tmp.push(blockHelpMap[sqlTypes[i]])
                 }
             }
-            if (sqlOrderBy == "order by case type") {
-                sqlOrderBy = defaultOrderBy;
+            if (ret_sql != "case type") {
+                sort_help.push('('+help_tmp.join(',')+')');
+                return ret_sql + ' end';
+            }
+            sort_help.push(nonGroupSortHelpMap[TYPE_SORT])
+            return defaultTypeOrderBy;
+        case CT_ASC:
+            return "created ASC";
+        case CT_DESC:
+            return "created DESC";
+        case UT_ASC:
+            return "updated ASC";
+        case UT_DESC:
+            return "updated DESC";
+        case RELEVANCE_ASC:
+            return "sort ASC";
+        case RELEVANCE_DESC:
+            return "sort DESC";
+        // 相关度用到了blocks_fts表, 但是搜索框不支持, 所以无法支持
+        }
+        return "true";
+    }
+    // [拼接sql] 搜索结果排序方式
+    const _buildOrderByQuery = function() {
+        let sqlOrderBy = "order by ";
+        help.sort = _getSortHelpPrefix();
+        if (arg.group) {
+            // 按照文档分组, 只支持指定的第一个方式或页面
+            sqlOrderBy = defaultOrderBy;
+            let help_tmp = '页面配置'
+            if (custom_sort.length) {
+                help_tmp = "指定"
+                arg.sort = custom_sort.length ? custom_sort[0] : arg.sort;
+            }
+            arg.sort = custom_sort.length ? custom_sort[0] : arg.sort;
+            switch(arg.sort) {
+            case TYPE_SORT:
+            case FILE_CONTENT:
+            case RELEVANCE_ASC:
+            case RELEVANCE_DESC:
+                // 这四种排序方式, 会被思源内置逻辑修改掉, 无法通过sql进行干预
+                // 按文档分组的相关度排序, 看起来思源本身也不支持这种排序方式, 会被修改成按照类型排序
+                // 所以这里修改页面配置即可, 不需要
+                break;
+            default:
+                // 其他排序方式, 拼接sql
+                sqlOrderBy += ', ' + _buildOrderByFromType(arg.sort);
+            }
+            help.sort += `文档:路径名升序->单文档下:${groupSortHelpMap[arg.sort]}`;
+        }
+        else {
+            // 不按照文档分组的排序, 思源不会处理, 所以都可以通过sql干预
+            const help_tmp = [];
+            if (custom_sort.length) {
+                // 指定了排序, 按照指定的拼接sql
+                const sort_arr = [];
+                custom_sort.forEach(sort_e => {
+                    sort_arr.push(_buildOrderByFromType(sort_e, help_tmp));
+                });
+                sqlOrderBy += sort_arr.join(", ");
             }
             else {
-                sqlOrderBy += ` end, ${searchResSortSql}`;
+                // 没有指定排序, 按照页面配置
+                sqlOrderBy += _buildOrderByFromType(arg.sort, help_tmp);
             }
-        } else {
-            sqlOrderBy = defaultOrderBy;
+            help.sort += help_tmp.join('->');
         }
-
+        if (sqlOrderBy == "order by ") {
+            sqlOrderBy = defaultOrderBy;
+            help.sort = `默认`;
+        }
         return sqlOrderBy;
     }
-    
     // [构造搜索语句] sql搜索
     const _buildSqlSearchQuery = function() {
         let sqlPrefix = 'select * from blocks where ' + SYT.SQL_FLAG;
@@ -526,7 +694,7 @@ function search_translator(arg) {
         // 自定义文档路径
         let sqlCustomPath = _buildSqlCustomPath();
         // 限制文档路径
-        let sqlCurrentDoc = _buildSqlCurrentDoc(options, id_path);
+        let sqlCurrentDoc = _buildSqlCurrentDoc(options, pageSearchPath);
         // 搜索结果排序方式
         let sqlOrderBy = _buildOrderByQuery(options);
 
@@ -535,7 +703,7 @@ function search_translator(arg) {
 
     // 区分场景 构造搜索语句
     const _buildQuery = function() {
-        if (!custom_path.length) {
+        if (!custom_path.length && !custom_sort.length && custom_group == -1) {
             if (!options.length && !excludedKeywords.length) {
                 // 没有选项, 排除词, 自定义路径, 就是用原样输入
                 mylog('type: 关键词');
@@ -551,7 +719,7 @@ function search_translator(arg) {
             }
         }
         mylog('type: sql语句');
-        return _buildSqlSearchQuery(options, keywords, excludedKeywords, id_path);
+        return _buildSqlSearchQuery(options, keywords, excludedKeywords, pageSearchPath);
     }
 
     //-------------------------- 主流程
@@ -589,7 +757,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
 
     get_help_info_html() {
         return `<table id="simpleSearchHelpTable"><tbody>
-        <tr><td colspan="4">${this.strong("搜索方式: ")}</td></tr>
+        <tr><td colspan="4">${this.strong("搜索方式: ")}(<a href="https://ld246.com/article/1754277290689">点击前往链滴反馈</a>)</td></tr>
             <tr>
                 <td>${this.code("-w")}:关键字搜索</td>
                 <td>${this.code("-q")}:查询语法</td>
@@ -800,14 +968,13 @@ class SimpleSearchHZ extends siyuan.Plugin {
         Object.entries(help.block_type).forEach(([key, val]) => block_type += `[${this.code('-'+key)}${val}],`);
         block_type = block_type ? block_type.slice(0, -1) : "未识别";
         return `<table id="simpleSearchAnalysisResTable"><tbody>
-        <tr><td colspan="2">${this.strong("简搜: 解析结果")}</td></tr>
-        <tr><td>搜索方式:</td><td>${type}</td></tr>
-        <tr><td>搜索内容:</td><td>${keywords}</td></tr>
-        <tr><td>排除内容:</td><td>${excluded}</td></tr>
-        <tr><td>类型过滤:</td><td>${block_type}</td></tr>
-        <tr><td>路径过滤:</td><td>${path}</td></tr>
-        <tr><td>排序方式:</td><td>${help.sort}</td></tr>
-        <tr><td style="min-width:70px;">转换结果:</td><td>${this.code(help.ret_str)}</td></tr>
+        <tr><td colspan="4">${this.strong("简搜: 解析结果")}(<a href="https://ld246.com/article/1754277290689">点击前往链滴反馈</a>)</td></tr>
+        <tr><td>搜索方式:</td><td colspan="3">${type}</td></tr>
+        <tr><td>搜索内容:</td><td>${keywords}</td><td colspan="2">排除内容: ${excluded}</td></tr>
+        <tr><td>类型过滤:</td><td colspan="3">${block_type}</td></tr>
+        <tr><td>路径过滤:</td><td colspan="3">${path}</td></tr>
+        <tr><td>排序方式:</td><td colspan="3">${help.sort}</td></tr>
+        <tr><td style="min-width:70px;">转换结果:</td><td colspan="3">${this.code(help.ret_str)}</td></tr>
         </tbody></table>`
     }
     // 显示解析结果
@@ -859,6 +1026,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.handle_open_search_page(data.detail);
         // 2.1 替换原有搜索条件
         this.replace_src_search(data.detail.config);
+        mylog("替换后参数", data.detail.config);
         // 2.2 显示解析结果
         this.set_analysis_result();
         // 3. 搜索结束后触发
@@ -868,7 +1036,10 @@ class SimpleSearchHZ extends siyuan.Plugin {
     highlightKeywords(search_list_text_nodes, keyword, highlight_type) {
         const str = keyword.trim().toLowerCase();
         const ranges = search_list_text_nodes // 查找所有文本节点是否包含搜索词
-            .map((el) => {
+            .filter(el => {
+                return el.tagName?.toLowerCase() != "mark";
+            }
+            ).flatMap((el) => {
                 const text = el.textContent.toLowerCase();
                 const indices = [];
                 let startPos = 0;
