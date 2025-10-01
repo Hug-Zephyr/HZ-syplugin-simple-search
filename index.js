@@ -736,71 +736,73 @@ class SimpleSearchHZ extends siyuan.Plugin {
     code(str) {return `<span class="fn__code">${str}</span>`};
     goto_link_html = '(<a href="https://ld246.com/article/1754277290689">前往链滴反馈</a> / <a href="https://gitee.com/Hug_Zephyr/HZ-syplugin-simple-search/blob/master/README.md">点击查看readme</a>)';
     get_help_info_html() {
-        return `<table id="simpleSearchHelpTable"><tbody>
-        <tr><td colspan="4">${this.strong("搜索方式: ")}${this.goto_link_html}</td></tr>
-            <tr>
-                <td>${this.code("-w")}:关键字搜索</td>
-                <td>${this.code("-q")}:查询语法</td>
-                <td>${this.code("-s")}:SQL语句搜索</td>
-                <td>${this.code("-r")}:正则表达式</td>
-            </tr>
-        <tr><td colspan="4">${this.strong("块类型过滤: ")}</td></tr>
-            <tr>
-                <td>${this.code("-d")}:文档块</td>
-                <td>${this.code("-h")}:标题块</td>
-                <td>${this.code("-h13")}:1、3级标题</td>
-                <td>${this.code("-p")}:段落块</td>
-            </tr>
-            <tr>
-                <td>${this.code("-c")}:代码块</td>
-                <td>${this.code("-b")}:引述块</td>
-                <td colspan="2">${this.code("-L")}:表示带有链接的块(非思源标准的块类型)</td>
-            </tr>
-            <tr>
-                <td colspan="3">${this.code("-l")}:列表块(包含有序列表块、无序列表块和任务列表块)</td>
-                <td>${this.code("-i")}:列表项块</td>
-            </tr>
-            <tr>
-                <td>${this.code("-t")}:表格块</td>
-                <td>${this.code("-m")}:数学公式块</td>
-                <td colspan="2">${this.code("-s")}:超级块(-s不能放到开头, 否则会和sql搜索冲突)</td>
-            </tr>
-            <tr>
-                <td colspan="2">${this.code("-o")}:小写o, 未完成的待办项(todo)</td>
-                <td colspan="2">${this.code("-O")}:大写o, 已完成的待办项(done)</td>
-            </tr>
-        <tr><td colspan="4">${this.strong("路径过滤: ")}</td></tr>
-            <tr>
-                <td colspan="2">${this.code("-a")}:在所有文档里面搜索</td>
-                <td colspan="2">${this.code("-a13")}:在第1和第3个笔记本里面搜索</td>
-            </tr>
-            <tr>
-                <td colspan="2">${this.code("-k")}:小写k, 在当前文档搜索</td>
-                <td colspan="2">${this.code("-K")}:大写k, 在当前文档及子文档搜索</td>
-            </tr>
-        <tr><td colspan="4">${this.strong("其他: ")}</td></tr>
-            <tr><td colspan="4">* ${this.code("-")}"+要排除的关键词，排除指定关键词</td></tr>
-            <tr><td colspan="4">* ${this.code("-e")}": 扩展搜索, 搜索出同时包含的文档</td></tr>
+        return `<div>${this.strong("简搜插件关键字: ")}${this.goto_link_html}</div>
+        <table id="simpleSearchHelpTable"><tbody>
+        <tr>
+            <td colspan="1">${this.strong(" 搜索方式: ")}</td>
+            <td>${this.code("-w")}:关键字搜索</td>
+            <td>${this.code("-q")}:查询语法</td>
+            <td>${this.code("-s")}:SQL语句搜索</td>
+            <td>${this.code("-r")}:正则表达式</td>
+        </tr>
+        <tr>
+            <td colspan="1" rowspan="5">${this.strong(" 块类型过滤: ")}</td>
+            <td>${this.code("-d")}:文档块</td>
+            <td>${this.code("-h")}:标题块</td>
+            <td>${this.code("-h13")}:1、3级标题</td>
+            <td>${this.code("-p")}:段落块</td>
+        </tr>
+        <tr>
+            <td>${this.code("-c")}:代码块</td>
+            <td>${this.code("-b")}:引述块</td>
+            <td colspan="2">${this.code("-L")}:表示带有链接的块(非思源标准的块类型)</td>
+        </tr>
+        <tr>
+            <td colspan="3">${this.code("-l")}:列表块(包含有序列表块、无序列表块和任务列表块)</td>
+            <td>${this.code("-i")}:列表项块</td>
+        </tr>
+        <tr>
+            <td>${this.code("-t")}:表格块</td>
+            <td>${this.code("-m")}:数学公式块</td>
+            <td colspan="2">${this.code("-s")}:超级块(-s不能放到开头, 否则会和sql搜索冲突)</td>
+        </tr>
+        <tr>
+            <td colspan="2">${this.code("-o")}:小写o, 未完成的待办项(todo)</td>
+            <td colspan="2">${this.code("-O")}:大写o, 已完成的待办项(done)</td>
+        </tr>
+        <tr>
+            <td colspan="1" rowspan="2">${this.strong(" 路径过滤: ")}</td>
+            <td colspan="2">${this.code("//")}:在所有文档里面搜索</td>
+            <td colspan="2">${this.code("/")}:过滤文档路径</td>
+        </tr>
+        <tr>
+            <td colspan="2">${this.code("-k")}:小写k, 在当前文档搜索</td>
+            <td colspan="2">${this.code("-K")}:大写k, 在当前文档及子文档搜索</td>
+        </tr>
+        <tr>
+            <td colspan="1">${this.strong(" 分组: ")}</td>
+            <td colspan="2">${this.code("g<")}/${this.code("g>")}:按照文档分组</td>
+            <td colspan="2">${this.code("nog<")}/${this.code("nog>")}:不按文档分组</td>
+        </tr>
+        <tr>
+            <td colspan="1" rowspan="2">${this.strong(" 排序: ")}</td>
+            <td colspan="2">${this.code("type<")}/${this.code("type>")}:按照类型排序</td>
+            <td colspan="2">${this.code("cont<")}/${this.code("cont>")}:原文内容顺序</td>
+        </tr>
+        <tr>
+            <td>${this.code("ct<")}:创建时间升序</td>
+            <td>${this.code("ct>")}:创建时间降序</td>
+            <td>${this.code("ut<")}:更新时间升序</td>
+            <td>${this.code("ut>")}:更新时间降序</td>
+        </tr>
+        <tr>
+            <td colspan="1" rowspan="2">${this.strong(" 其他: ")}</td>
+            <td colspan="4">${this.code("-")}"+要排除的关键词，排除指定关键词</td></tr>
+        </tr>
+        <tr>
+            <td colspan="4">${this.code("-e")}":扩展搜索, 搜索出同时包含的文档</td>
+        </tr>
         </tbody></table>`
-/*
-<div style="display:flex;flex-direction: column;">
-    <div>
-        ${this.strong("搜索方式: ")}${this.code("-w")}":关键字搜索; ${this.code("-q")}":查询语法; ${this.code("-s")}":SQL语句搜索; ${this.code("-r")}":正则表达式
-    </div>
-    ${this.strong("块类型过滤: ")}
-    <div>${this.code("-d")}":文档块; ${this.code("-h")}":标题块; ${this.code("-h13")}":1、3级标题; ${this.code("-p")}":段落块; </div>
-    <div>${this.code("-c")}":代码块; ${this.code("-b")}":引述块; ${this.code("-L")}":表示带有链接的块(非思源标准的块类型); </div>
-    <div>${this.code("-l")}":列表块(包含有序列表块、无序列表块和任务列表块); ${this.code("-i")}":列表项块; </div>
-    <div>${this.code("-t")}":表格块; ${this.code("-o")}":未完成的待办项(todo), 小写o; ${this.code("-O")}":已完成的待办项, 大写o; 
-    </div>
-    ${this.strong("路径过滤")}
-    <div>${this.code("-a")}":在所有文档里面搜索; ${this.code("-a13")}":在第1和第3个笔记本里面搜索; </div>
-    <div>${this.code("-k")}":在当前文档搜索, 小写k; ${this.code("-K")}":在当前文档及子文档搜索, 大写k; </div>
-    ${this.strong("其他")}
-    <div>* ${this.code("-")}"+要排除的关键词，排除指定关键词</div>
-    <div>* ${this.code("-e")}": 扩展搜索, 搜索出同时包含的文档</div>
-</div>
-*/
     }
     handle_assit_icon() {
         const icon_parent = this.get_ele('.search__header>.block__icons');

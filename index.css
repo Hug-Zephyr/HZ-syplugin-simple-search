@@ -6,3 +6,12 @@
     background-color: var(--b3-theme-primary-lighter);
     box-shadow: 0 0 0 0.5px var(--b3-theme-on-background);
 }
+#simpleSearchHelpTable{
+    /* 边框线 */
+    border-collapse: collapse;
+    margin-top: 10px;
+    td{
+        border: 1px solid rgba(0, 0, 0, 0.2);
+        padding: 5px 8px;
+    }
+}
