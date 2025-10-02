@@ -726,6 +726,9 @@ class SimpleSearchHZ extends siyuan.Plugin {
     get_search_list() {
         return this.get_ele('#searchList');
     }
+    get_new_search_list() {
+        return this.get_ele('#HZsimpleSearchList');
+    }
     css_uninit() {
     }
     css_init() {
@@ -984,6 +987,147 @@ class SimpleSearchHZ extends siyuan.Plugin {
             // tip_ele.addEventListener('click', () => searchNew.click());
         }
     }
+    // dfs遍历文档树, 生成文档树html
+    show_new_file_tree(head, body, tree_json) {
+        if (!tree_json || !Object.keys(tree_json).length) return;
+        const child_key = 'hz_special_child';
+
+        if (head && Object.keys(tree_json).length == 1 && !tree_json[child_key]){
+            // 只有一个文档, 与父级合并
+            const pathSpan = head.querySelector('.b3-list-item__text.ariaLabel');
+            if (pathSpan) {
+                const this_path = Object.keys(tree_json)[0];
+                // 获取当前路径文本
+                const currentPath = pathSpan.textContent;
+                // 拼接新字符串
+                const newPath = currentPath + '/' + this_path;
+                // 更新文本内容
+                pathSpan.textContent = newPath;
+                // 如果需要同时更新aria-label属性
+                pathSpan.setAttribute('aria-label', newPath);
+
+                this.show_new_file_tree(head, body, tree_json[this_path]);
+                return;
+            }
+        }
+        // 多个文档, 创建路径节点
+        for (let this_path of Object.keys(tree_json).sort()) {
+            if (this_path == child_key) continue;
+            // 创建一个文档节点, 名字是path
+            body.insertAdjacentHTML('beforeend', `
+                <div class="b3-list-item">
+                <span class="b3-list-item__toggle b3-list-item__toggle--hl">
+                    <svg class="b3-list-item__arrow b3-list-item__arrow--open"><use xlink:href="#iconRight"></use></svg>
+                </span>
+                <span class="b3-list-item__graphic">📁</span>
+                <span class="b3-list-item__text ariaLabel" style="color: var(--b3-theme-on-surface)" aria-label="${this_path}">${this_path}</span>
+                </div><div class="HZ-simpleSearchListBody"></div>
+            `);
+            const new_body = body.lastElementChild;
+            const new_head = new_body.previousElementSibling;
+            this.show_new_file_tree(new_head, new_body, tree_json[this_path]);
+        }
+        // 最后防线
+        if (tree_json[child_key]) {
+            // 在body里面放上结果
+            const res = tree_json[child_key].cloneNode(true);
+            body.insertAdjacentElement('beforeend', res);
+            // body.replaceWith(res);
+            // res.classList.add('HZ-simpleSearchListBody');
+        }
+    }
+    // 增加新文档树之后, 需要适配一些事件
+    handle_new_tree_event_listern(new_tree) {
+        // 1.新文档树结果点击事件
+        // 在代理元素上监听所有鼠标事件
+        new_tree.addEventListener('click', (event) => {
+            const new_ele = event.target.closest('[data-type="search-item"]');
+            if (!new_ele) return;
+            event.stopPropagation();  // 停止事件传播
+            const root_id = new_ele.getAttribute('data-root-id');
+            const node_id = new_ele.getAttribute('data-node-id');
+            const src_ele = this.get_search_list()?.querySelector(`[data-root-id="${root_id}"][data-node-id="${node_id}"]`);
+            new_tree.querySelectorAll('.b3-list-item--focus').forEach(ele => ele.classList.remove('b3-list-item--focus'));
+            new_ele.classList.add('b3-list-item--focus');
+            // 创建新事件，显式复制所有重要属性
+            const newEvent = new MouseEvent('click', {
+                bubbles: true,
+                cancelable: true,
+                composed: event.composed,
+                view: event.view,
+                detail: event.detail, // 关键！
+                screenX: event.screenX,
+                screenY: event.screenY,
+                clientX: event.clientX,
+                clientY: event.clientY,
+                ctrlKey: event.ctrlKey,
+                shiftKey: event.shiftKey,
+                altKey: event.altKey,
+                metaKey: event.metaKey,
+                button: event.button,
+                buttons: event.buttons,
+                relatedTarget: event.relatedTarget
+            });
+            // 派发到目标元素
+            src_ele.dispatchEvent(newEvent);
+        });
+        // 2.按键事件: 上下/回车
+        // 3.全部展开/全部折叠事件
+        this.get_ele('#searchExpand')?.addEventListener('click', () => {
+            new_tree.querySelectorAll('.b3-list-item__arrow:not(.b3-list-item__arrow--open)').forEach(arrow => arrow.parentElement.click());
+        });
+        this.get_ele('#searchCollapse')?.addEventListener('click', () => {
+            new_tree.querySelectorAll('.b3-list-item__arrow--open').forEach(arrow => arrow.parentElement.click());
+        });
+    }
+    // 更新显示 新文档树
+    handle_file_tree_display() {
+        this.get_new_search_list()?.remove();
+        const src_tree_list = this.get_search_list();
+        src_tree_list.classList.remove("fn__none");
+        // 开关是关的, 退出
+        if (!this.filetree_sw) return;
+        // 搜索结果为空, 退出
+        if (this.get_ele('[data-type="simple-search-new-disabled"]')) return;
+        // 不分组, 退出
+        if (this.get_ele('#searchList>.b3-list-item[data-type="search-item"]')) return;
+        // 没有结果, 也退出, 正常不会走到这个if里面
+        if (!this.get_ele('#searchList>.b3-list-item')) return;
+        // 接管文档树的显示, 正式逻辑
+        const new_tree_list = src_tree_list.cloneNode();
+        new_tree_list.id ="HZsimpleSearchList";
+        new_tree_list.classList.remove("fn__none");
+        src_tree_list.classList.add('fn__none');
+        src_tree_list.after(new_tree_list);
+        const new_tree_json= {};
+        const fill_tree_json = function(path, file_parent) {
+            // 解析路径
+            const parts = path.split('/').filter(part => part !== '');
+            // 按照路径填充结构体
+            // todo: 无法处理相同路径的场景
+            let current = new_tree_json;
+            for (const part of parts) {
+                if (!current[part]) {
+                    current[part] = {};
+                }
+                current = current[part];
+            }
+            // 将这个文档的所有结果, 放到固定的字段里面
+            current['hz_special_child'] = file_parent;
+        }
+        // 遍历原始搜索结果, 解析成文档树
+        for (let i = 0; i < src_tree_list.children.length; i+=2) {
+            const path_ele = src_tree_list.children[i];
+            const file_parent_ele = src_tree_list.children[i+1];
+            if (!path_ele.classList.contains('b3-list-item')) break;
+            const path_str = path_ele.querySelector('.b3-list-item__text').textContent;
+            fill_tree_json(path_str, file_parent_ele);
+        }
+        // 递归显示文档树结构
+        this.show_new_file_tree(null, new_tree_list, new_tree_json);
+        // 处理监听事件
+        this.handle_new_tree_event_listern(new_tree_list);
+    }
     // 搜索结束后触发
     search_completed_callback(){
         // 这里利用了一个特性, 搜索事件触发之后, search_list会重置为新的元素
@@ -996,6 +1140,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
             ele.classList.add('simple-search-list-item');
             // 禁用回车创建文档
             this.forbid_enter_create_file(ele);
+            // 处理文档树显示
+            this.handle_file_tree_display();
         }.bind(this));
     }
     // 搜索事件触发
@@ -1043,7 +1189,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         CSS.highlights.set(highlight_type, searchResultsHighlight);     // 注册高亮
     }
     // 在界面加载完毕后高亮关键词
-    loadedProtyleStaticEvent(data= null) {
+    loadedProtyleStaticEvent(data=null, ) {
         console.log('加载成功触发', data);
         const query = this.query;
         if (!query) return;
@@ -1053,8 +1199,9 @@ class SimpleSearchHZ extends siyuan.Plugin {
         CSS.highlights.clear();     // 清除上个高亮
 
         // 判断是否存在搜索界面
-        const search_list = this.get_search_list();
-        if (search_list == null) return;
+        let search_list = this.get_new_search_list();
+        if (!search_list) search_list = this.get_search_list();
+        if (!search_list) return;
 
         // 获取所有具有 b3-list-item__text 类的节点的文本子节点
         const search_list_text_nodes = Array.from(search_list.querySelectorAll(".b3-list-item__text:not(.ariaLabel)"), el => el.firstChild);
@@ -1092,7 +1239,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
     onLayoutReady() {
         this.page = null; // 搜索框所在的页面, 所有搜索都在此元素下搜索, 用于隔离 搜索页签和搜索弹窗
         this.query = {type:"", val:"", keywords:[], help:{}}; // 解析后的内容 {type: 搜索类型, val: 搜索内容, keywords: 关键词}
-        this.textarea_sw = false;
+        this.textarea_sw = false; // 辅助信息显示框 是否显示
+        this.filetree_sw = true; // 是否接管文档树显示
 
         this.css_init();
         this.sy_event_init();
