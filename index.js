@@ -869,6 +869,34 @@ class SimpleSearchHZ extends siyuan.Plugin {
             }
         });
     }
+    handle_src_focus_file() {
+        // 创建MutationObserver实例，传入回调函数
+        const observer = new MutationObserver((mutationsList, observer) => {
+            // console.log("检测到属性变化");
+            mutationsList.forEach(mutation => {
+                if (mutation.type != 'attributes') return;
+                // 处理属性变化, 不是结果节点的, 直接退出
+                const src_ele = mutation.target;
+                if (src_ele.getAttribute('data-type') != 'search-item') return;
+                // 找到 新节点, 直接使用 源节点的属性
+                const root_id = src_ele.getAttribute('data-root-id');
+                const node_id = src_ele.getAttribute('data-node-id');
+                const new_ele = this.get_new_search_list()?.querySelector(`[data-root-id="${root_id}"][data-node-id="${node_id}"]`);
+                if (!new_ele) return;
+                new_ele.className = src_ele.className;
+                if (new_ele.classList.contains('b3-list-item--focus')) {
+                    new_ele.scrollIntoView({
+                        behavior: 'smooth', // 可选：平滑滚动
+                        block: 'center'   // 或 'start', 'center', 'end'
+                    })
+                }
+            });
+        });
+
+        // 配置MutationObserver，监视目标节点子节点变化
+        const config = { childList: true, subtree: true, attributes: true };
+        observer.observe(this.get_search_list(), config);
+    }
     // 对于当前这个搜索页面来说 第一次打开搜索页面
     handle_open_search_page(detail) {
         // 打上标记
@@ -877,6 +905,18 @@ class SimpleSearchHZ extends siyuan.Plugin {
 
         // 增加 新功能图标
         this.handle_assit_icon();
+
+        // 新文档树事件
+        // 2.监听上下键的效果, 同步给新节点
+        this.handle_src_focus_file();
+
+        // 3.全部展开/全部折叠事件
+        this.get_ele('#searchExpand')?.addEventListener('click', () => {
+            this.get_new_search_list().querySelectorAll('.b3-list-item__arrow:not(.b3-list-item__arrow--open)').forEach(arrow => arrow.parentElement.click());
+        });
+        this.get_ele('#searchCollapse')?.addEventListener('click', () => {
+            this.get_new_search_list().querySelectorAll('.b3-list-item__arrow--open').forEach(arrow => arrow.parentElement.click());
+        });
 
         // // 监听搜索框的blur事件, 保存搜索框内容, 让下次搜索自动填充上次搜索内容, 思源会自动将k的内容填充到搜索框
         // const input_ele = detail.searchElement;
@@ -1037,9 +1077,9 @@ class SimpleSearchHZ extends siyuan.Plugin {
         }
     }
     // 增加新文档树之后, 需要适配一些事件
+    // 这里的逻辑, 每次搜索动作都会触发
     handle_new_tree_event_listern(new_tree) {
-        // 1.新文档树结果点击事件
-        // 在代理元素上监听所有鼠标事件
+        // 1.新文档树上监听鼠标事件, 同步给原节点
         new_tree.addEventListener('click', (event) => {
             const new_ele = event.target.closest('[data-type="search-item"]');
             if (!new_ele) return;
@@ -1047,6 +1087,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             const root_id = new_ele.getAttribute('data-root-id');
             const node_id = new_ele.getAttribute('data-node-id');
             const src_ele = this.get_search_list()?.querySelector(`[data-root-id="${root_id}"][data-node-id="${node_id}"]`);
+            if (!src_ele) return;
             new_tree.querySelectorAll('.b3-list-item--focus').forEach(ele => ele.classList.remove('b3-list-item--focus'));
             new_ele.classList.add('b3-list-item--focus');
             // 创建新事件，显式复制所有重要属性
@@ -1071,14 +1112,10 @@ class SimpleSearchHZ extends siyuan.Plugin {
             // 派发到目标元素
             src_ele.dispatchEvent(newEvent);
         });
-        // 2.按键事件: 上下/回车
+
+        // 2.监听上下键, 同步给新节点
         // 3.全部展开/全部折叠事件
-        this.get_ele('#searchExpand')?.addEventListener('click', () => {
-            new_tree.querySelectorAll('.b3-list-item__arrow:not(.b3-list-item__arrow--open)').forEach(arrow => arrow.parentElement.click());
-        });
-        this.get_ele('#searchCollapse')?.addEventListener('click', () => {
-            new_tree.querySelectorAll('.b3-list-item__arrow--open').forEach(arrow => arrow.parentElement.click());
-        });
+        // 在刚打开时监听: handle_open_search_page
     }
     // 更新显示 新文档树
     handle_file_tree_display() {
@@ -1097,7 +1134,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         const new_tree_list = src_tree_list.cloneNode();
         new_tree_list.id ="HZsimpleSearchList";
         new_tree_list.classList.remove("fn__none");
-        src_tree_list.classList.add('fn__none');
+        // src_tree_list.classList.add('fn__none');
         src_tree_list.after(new_tree_list);
         const new_tree_json= {};
         const fill_tree_json = function(path, file_parent) {
