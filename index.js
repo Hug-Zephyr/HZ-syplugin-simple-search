@@ -729,18 +729,300 @@ class SimpleSearchHZ extends siyuan.Plugin {
     get_new_search_list() {
         return this.get_ele('#HZsimpleSearchList');
     }
-    css_uninit() {
+    uninit_css_style() {
+        if (!this.css) return
+        this.css.remove();
+        this.css = null;
     }
-    css_init() {
+    init_css_style() {
+        this.uninit_css_style();
+        let css = "";
+        // 竖线风格
+        const tree_style = this.restree_cfg.tree_style;
+        if (tree_style == 'native') {
+            css = `
+                /* 新增的文档树 */
+                :root {
+                    /* 竖线与父级竖线的距离 */
+                    --HZ-sp-vertical-line-interval: 18px;
+                    /* 结果与左边竖线的距离 */
+                    --HZ-sp-search-res-pad-left: 22px;
+                }
+                #HZsimpleSearchList .simpleSearchListBody {
+                    margin-left: var(--HZ-sp-vertical-line-interval);
+                    &>.b3-list-item>.b3-list-item__graphic  {
+                        margin-right: 0px;
+                    }
+                    &>div>[data-type="search-item"] {
+                        padding-left: var(--HZ-sp-search-res-pad-left)!important;
+                        &>.b3-list-item__graphic {
+                            margin-right: 2px;
+                        }
+                    }
+                }
+            `
+        }
+        else if (tree_style == 'colorful') {
+            css = `
+                /* 新增的文档树 */
+                :root {
+                    /* 竖线颜色 */
+                    --HZ-sp-vertical-line-color-1: var(--b3-font-color7);
+                    --HZ-sp-vertical-line-color-2: var(--b3-font-color6);
+                    --HZ-sp-vertical-line-color-3: var(--b3-font-color9);
+                    --HZ-sp-vertical-line-color-4: var(--b3-font-color11);
+                    --HZ-sp-vertical-line-color-5: var(--b3-font-color7);
+                    --HZ-sp-vertical-line-color-6: var(--b3-font-color6);
+                    --HZ-sp-vertical-line-color-7: var(--b3-font-color9);
+                    --HZ-sp-vertical-line-color-8: var(--b3-font-color11);
+                    /* 竖线括号粗细 */
+                    --HZ-sp-vertical-line-bracket-width: 2px;
+                    /* 竖线括号圆角弧度 */
+                    --HZ-sp-bracket-border-radius: 8px;
+                    /* 竖线与父级竖线的距离 */
+                    --HZ-sp-vertical-line-interval: 18px;
+                    /* 结果与左边竖线的距离 */
+                    --HZ-sp-search-res-pad-left: 2px;
+                }
+                #HZsimpleSearchList .simpleSearchListBody {
+                    margin-left: var(--HZ-sp-vertical-line-interval);
+                    border-top-left-radius: var(--HZ-sp-bracket-border-radius);
+                    border-bottom-left-radius: var(--HZ-sp-bracket-border-radius);
+                    &>div>[data-type="search-item"] {
+                        padding-left: var(--HZ-sp-search-res-pad-left)!important;
+                    }
+                    .b3-list-item__toggle--hl {
+                        margin-left: -2px;
+                        margin-right: 2px;
+                    }
+                    border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-1);
+                    .simpleSearchListBody {
+                        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-2);
+                    }
+                    .simpleSearchListBody .simpleSearchListBody {
+                        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-3);
+                    }
+                    .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody {
+                        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-4);
+                    }
+                    .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody {
+                        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-5);
+                    }
+                    .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody {
+                        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-6);
+                    }
+                    .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody {
+                        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-7);
+                    }
+                    .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody {
+                        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-8);
+                    }
+                }
+            `;
+        }
+        else if (tree_style == 'ediary') {
+            css = `
+                :root {
+                    /* 竖线与父级竖线的距离 */
+                    --HZ-sp-vertical-line-interval: 22px;
+                    /* 结果与左边竖线的距离 */
+                    --HZ-sp-search-res-pad-left: 26px;
+                    /* 竖线颜色 */
+                    --HZ-sp-vertical-line-color: black;
+                }
+
+                #HZsimpleSearchList .simpleSearchListBody {
+                    margin-left: var(--HZ-sp-vertical-line-interval);
+
+                    &>.b3-list-item {
+                        margin-left: 6px;
+                    }
+
+                    &>.b3-list-item>.b3-list-item__graphic {
+                        margin-right: 0px;
+                    }
+
+                    &>div>[data-type="search-item"] {
+                        padding-left: var(--HZ-sp-search-res-pad-left) !important;
+
+                        &>.b3-list-item__graphic {
+                            margin-right: 2px;
+                        }
+                    }
+                }
+
+                #HZsimpleSearchList>.b3-list-item {
+                    margin-left: 7px;
+                }
+
+                /*折叠按钮样式*/
+                #HZsimpleSearchList .b3-list-item>.b3-list-item__toggle>svg {
+                    background-color: var(--b3-theme-surface);
+                    border: 1px solid var(--b3-theme-on-surface-light);
+                    padding: 2px;
+                }
+
+                /*文档的折叠按钮, 图标要比虚线高一层 */
+                #HZsimpleSearchList .b3-list-item__toggle>svg,
+                #HZsimpleSearchList .b3-list-item__graphic {
+                    z-index: 2;
+                }
+
+                /* L型的线 */
+                #HZsimpleSearchList .simpleSearchListBody {
+                    position: relative;
+                }
+
+                #HZsimpleSearchList .simpleSearchListBody::before {
+                    content: "";
+                    visibility: visible;
+                    position: absolute;
+                    left: 21px;
+                    top: -7px;
+                    width: 18px;
+                    height: calc(100% - 7px);
+                    background: transparent;
+                    border-left: 1px dashed var(--HZ-sp-vertical-line-color);
+                    border-bottom: 1px dashed var(--HZ-sp-vertical-line-color);
+                    z-index: 1;
+                }
+
+                /* L型的线并不能完全覆盖, 剩下的由每个文档覆盖*/
+                #HZsimpleSearchList .simpleSearchListBody>.b3-list-item:not(:last-child)>.b3-list-item__toggle::before {
+                    content: "";
+                    visibility: visible;
+                    position: absolute;
+                    left: 21px;
+                    width: 15px;
+                    height: 1px;
+                    background: transparent;
+                    border-bottom: 1px dashed var(--HZ-sp-vertical-line-color);
+                    z-index: 1;
+                }
+            `;
+        }
+        else {
+            return;
+        }
+        this.css = js_insert_css(css);
+    }
+    get_tree_style_setting_html() {
+        const cfg = this.restree_cfg;
+        const get_html_head = function (icon, str) {
+            return `<div class="section-title"><i>${icon}</i> ${str}</div>`
+        }
+        const get_html_cfg_name = function (name, desc) {
+            return `<div class="fn__flex-1">${name}<div class="b3-label__text">${desc}</div></div>`
+        }
+        const get_html_check_sw = function (id, sw) {
+            return `<input class="b3-switch fn__flex-center" id="${id}" type="checkbox" ${sw ? 'checked=""' : ''}>`
+        }
+        const get_html_radio_sw = function (tree_style) {
+            let is_native   = tree_style == "native" ? "checked" : "";
+            let is_colorful = tree_style == "colorful" ? "checked" : "";
+            let is_ediary   = tree_style == "ediary" ? "checked" : "";
+            return `
+                <div class="fn__flex b3-label">
+                    ${get_html_cfg_name('树样式 - 竖线风格 <a href="https://ld246.com/article/1759408628406">了解更多</a>', '选择树结构中竖线的显示风格')}
+                    <span class="fn__space"></span>
+                    <div class="radio-group" id="simpleSearchTreeStyle">
+                        <div class="radio-item">
+                            <input type="radio" id="simpleSearchStyleNative" name="treeStyle" ${is_native}>
+                            <label for="simpleSearchStyleNative">原生</label>
+                        </div>
+                        <div class="radio-item">
+                            <input type="radio" id="simpleSearchStyleColorful" name="treeStyle" ${is_colorful}>
+                            <label for="simpleSearchStyleColorful">多彩</label>
+                        </div>
+                        <div class="radio-item">
+                            <input type="radio" id="simpleSearchStyleEdiary" name="treeStyle" ${is_ediary}>
+                            <label for="simpleSearchStyleEdiary">eDiary风格</label>
+                        </div>
+                    </div>
+                </div>
+            `
+        }
+        const get_html_setting_once = function(id, name, desc, sw_html) {
+            id = id ? `id = "${id}"` : ""
+            return `
+                <label ${id} class="fn__flex b3-label">
+                    ${get_html_cfg_name(name, desc)}
+                    <span class="fn__space"></span>
+                    ${sw_html}
+                </label>
+            `
+        }
+        //生成当前设置
+        return `<div id="simpleSearchAssistSetting">
+            <span>(温馨提示: 拖动方框右下角可以调整显示区域)</span>
+            ${get_html_head('🎨', '文档树相关')}
+            ${get_html_setting_once("", "接管搜索结果", "开启后, 搜索结果将以树的样式进行显示, 仅在分组下生效", get_html_check_sw("simpleSearchTreeSw", cfg.is_tree))}
+            ${get_html_radio_sw(cfg.tree_style)}
+            ${get_html_head('🔍', '搜索结果相关')}
+            ${get_html_setting_once("", "搜索结果优先", "开启后，搜索结果将显示在路径上面, 建议开启, 因为关闭会导致上下键顺序不对, ", get_html_check_sw("simpleSearchResTop", cfg.res_top))}
+            ${get_html_setting_once("", "显示全路径", "开启后, 将显示全路径, 而不是只有文档名", get_html_check_sw("simpleSearchAllPath", cfg.all_path))}
+        </div>`;
+        // ${get_html_setting_once("", "树样式同步至文档树", "开启后, 文档树和大纲会修改成与搜索结果相同的样式", get_html_check_sw("simpleSearchSyncTree", cfg.sync_file))}
+    }
+    // 显示
+    handle_tree_style_setting_display() {
+        const text_area = this.get_ele('#simpleSearchTextarea');
+        if (!text_area) return;
+        text_area.innerHTML = this.get_tree_style_setting_html();
+
+        const id_map = { // id -> cfg.key
+            simpleSearchTreeSw       : 'is_tree',    // 接管搜索结果
+            simpleSearchSyncTree     : 'sync_file',  // 同步文档树样式
+            simpleSearchResTop       : 'res_top',    // 搜索结果优先
+            simpleSearchAllPath      : 'all_path',   // 显示全路径
+            simpleSearchStyleNative  : 'native',     // 树样式: 原生
+            simpleSearchStyleColorful: 'colorful',   // 树样式: 多彩
+            simpleSearchStyleEdiary  : 'ediary',     // 树样式: eDiary风格
+        }
+        text_area.querySelectorAll('input[type="checkbox"]').forEach(ele => {
+            ele.addEventListener('change', (event) => {
+                // 通过开关id找到开关存储位置的key
+                const key = id_map[event.target.id];
+                // 给开关赋值
+                this.restree_cfg[key] = event.target.checked;
+                // 更新css
+                this.init_css_style();
+                // 更新搜索结果
+                this.handle_res_tree_display();
+            });
+        });
+
+        // 树样式 - 竖线风格
+        const radioButtons = text_area.querySelectorAll('input[type="radio"]');
+        radioButtons.forEach(radio => {
+            radio.addEventListener('change', (event) => {
+                const ele = event.target;
+                if (!ele.checked) return;
+                this.restree_cfg.tree_style = id_map[ele.id]
+                this.init_css_style();
+                this.handle_res_tree_display();
+            });
+        });
+    }
+    // 嵌入 信息显示框
+    inseart_assist_area() {
+        // 1. 信息显示框, 一定插入, 通过开关控制是否显示
+        const criteria = this.get_ele('#criteria');
+        const is_show = this.assist_sw ? "contents" : "none";
+        criteria.insertAdjacentHTML('afterend', `
+            <div id="simpleSearchAssistArea" style="display: ${is_show};">
+                <div id="simpleSearchTextarea" class="fn__block b3-text-field ${is_show}" placeholder="简搜: 辅助信息" spellcheck="false"></div>
+            </div>
+        `);
     }
     // 加粗: <span style="font-weight:bold"></span>
     // 代码: <span class="fn__code"></span>
     strong(str) {return `<span style="font-weight:bold">${str}</span>`};
     code(str) {return `<span class="fn__code">${str}</span>`};
-    goto_link_html = '(<a href="https://ld246.com/article/1754277290689">前往链滴反馈</a> / <a href="https://gitee.com/Hug_Zephyr/HZ-syplugin-simple-search/blob/master/README.md">点击查看readme</a>)';
     get_help_info_html() {
-        return `<div>${this.strong("简搜插件关键字: ")}${this.goto_link_html}</div>
-        <table id="simpleSearchHelpTable"><tbody>
+        return `<div id="simpleSearchHelpTable">
+        <span style="font-size: 16px; font-weight:bold">简搜插件关键字: </span><span> (温馨提示: 拖动方框右下角可以调整显示区域)</span>
+        <table><tbody>
         <tr>
             <td colspan="1">${this.strong(" 搜索方式: ")}</td>
             <td>${this.code("-w")}:关键字搜索</td>
@@ -805,54 +1087,55 @@ class SimpleSearchHZ extends siyuan.Plugin {
         <tr>
             <td colspan="4">${this.code("-e")}":扩展搜索, 搜索出同时包含的文档</td>
         </tr>
-        </tbody></table>`
+        </tbody></table>
+        </div>`
     }
-    handle_assit_icon() {
+    // 嵌入 开关按钮, 帮助按钮
+    insert_assist_btn() {
         const icon_parent = this.get_ele('.search__header>.block__icons');
-
-        // 1. 开关按钮
+        // 1. 增加开关按钮
+        // 关 -> 开
         const enable_sw = {
             icon: "#iconEye",
             label: "简搜: 点击显示辅助信息框",
             display: "none",
         }
+        // 开 -> 关
         const disable_sw = {
             icon: "#iconEyeoff",
             label: "简搜: 点击隐藏辅助信息框",
-            display: "block",
+            display: "contents",
         }
-        const sw = this.textarea_sw ? disable_sw : enable_sw;
+        const sw = this.assist_sw ? disable_sw : enable_sw;
         icon_parent.insertAdjacentHTML('beforeend', `
             <span class="fn__space"></span>
             <span id="simpleSearchShowSw" aria-label="${sw.label}" class="block__icon ariaLabel" data-position="9south">
                 <svg><use xlink:href="${sw.icon}"></use></svg>
             </span>
         `);
-
-        // 2. 信息显示框, 一定插入, 开关通过设置display控制是否显示
-        const criteria = this.get_ele('#criteria');
-        criteria.insertAdjacentHTML('afterend', `
-            <div style="padding: 0 5px;">
-                <div id="simpleSearchTextarea" class="fn__block b3-text-field" placeholder="简搜: 辅助信息" spellcheck="false"
-                    style="display: ${sw.display}; resize: vertical; font-family: var(--b3-font-family-code); height: 200px; overflow-y: auto; "></div>
-            </div>
-        `);
         const sw_ele = icon_parent.querySelector('#simpleSearchShowSw');
         const use_ele = sw_ele.querySelector('svg>use')
-        const textarea = this.get_ele('#simpleSearchTextarea')
+        const assist_area = this.get_ele('#simpleSearchAssistArea')
         sw_ele.addEventListener('click', () => {
             // 根据图标更新当前状态
-            this.textarea_sw = textarea.style.display != "none";
+            this.assist_sw = assist_area.style.display != "none";
             // 点击说明要切换开关
-            this.textarea_sw = !this.textarea_sw;
+            this.assist_sw = !this.assist_sw;
             // 按照新的开关, 重新设置样式
-            const sw = this.textarea_sw ? disable_sw : enable_sw;
+            const sw = this.assist_sw ? disable_sw : enable_sw;
             sw_ele.setAttribute('aria-label', sw.label);
             use_ele.setAttribute('xlink:href', sw.icon);
-            textarea.style.display = sw.display;
+            assist_area.style.display = sw.display;
+            const jump_div = this.get_ele('#simpleSearchQuickJump');
+            if (this.assist_sw) {
+                jump_div.classList.remove('fn__none');
+            }
+            else {
+                jump_div.classList.add('fn__none');
+            }
         });
 
-        // 3. 帮助按钮
+        // 2. 增加帮助按钮
         icon_parent.insertAdjacentHTML('beforeend', `
             <span class="fn__space"></span>
             <span id="simpleSearchHelp" aria-label="简搜: 点击显示插件关键词" class="block__icon ariaLabel" data-position="9south">
@@ -860,15 +1143,44 @@ class SimpleSearchHZ extends siyuan.Plugin {
             </span>
         `);
         const help_ele = this.get_ele('#simpleSearchHelp');
+        const text_area = this.get_ele('#simpleSearchTextarea')
         help_ele.addEventListener('click', () => {
-            const has_help = textarea.querySelector('#simpleSearchHelpTable');
-            const is_show = textarea.style.display != 'none'
-            textarea.innerHTML = this.get_help_info_html();
-            if (!(is_show && !has_help)) {
+            text_area.innerHTML = this.get_help_info_html();
+            if (!this.assist_sw) {
                 sw_ele.click();
             }
         });
+
+        // 3. 增加帮助与反馈按钮
+        const save_ele = this.get_ele('[data-type="saveCriterion"]');
+        save_ele.insertAdjacentHTML('beforebegin', `
+            <div id="simpleSearchQuickJump" class="${this.assist_sw ? "" : 'fn__none'}" >
+            <button id="simpleSearchGotoReadme" class="b3-button b3-button--small b3-button--outline fn__flex-center ariaLabel" aria-label="简搜: 点击跳转至gitee的readme">帮助与反馈</button>
+            <span class="fn__space"></span>
+            <button id="simpleSearchDisplayTreeSetting" class="b3-button b3-button--small b3-button--outline fn__flex-center ariaLabel" aria-label="简搜: 点击打开搜索结果样式的设置页面">搜索结果样式</button>
+            <span class="fn__space"></span>
+            </div>
+        `); 
+        // const help_link = '<a href="https://gitee.com/Hug_Zephyr/HZ-syplugin-simple-search/blob/master/README.md">帮助与反馈</a>';
+        this.get_ele('#simpleSearchGotoReadme')?.addEventListener('click', (event) => {
+            event.stopPropagation();  // 停止事件传播
+            window.open('https://gitee.com/Hug_Zephyr/HZ-syplugin-simple-search/blob/master/README.md', '_blank');
+            event.target.blur();
+        });
+        this.get_ele('#simpleSearchDisplayTreeSetting')?.addEventListener('click', (event) => {
+            event.stopPropagation();  // 停止事件传播
+            this.handle_tree_style_setting_display();
+            event.target.blur();
+        });
     }
+    // 嵌入 辅助区域
+    handle_assist_area() {
+        // 1. 嵌入 信息显示框
+        this.inseart_assist_area();
+        // 2. 嵌入 开关按钮, 帮助按钮
+        this.insert_assist_btn()
+    }
+    // 监听原文档树中 选中节点的变化
     handle_src_focus_file() {
         // 创建MutationObserver实例，传入回调函数
         const observer = new MutationObserver((mutationsList, observer) => {
@@ -903,8 +1215,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         if (this.page.classList.contains('simple-search-page')) return;
         this.page.classList.add('simple-search-page');
 
-        // 增加 新功能图标
-        this.handle_assit_icon();
+        // 在搜索页面嵌入: 快捷操作区域
+        this.handle_assist_area();
 
         // 新文档树事件
         // 2.监听上下键的效果, 同步给新节点
@@ -992,8 +1304,9 @@ class SimpleSearchHZ extends siyuan.Plugin {
         let block_type = "";
         Object.entries(help.block_type).forEach(([key, val]) => block_type += `[${this.code('-'+key)}${val}],`);
         block_type = block_type ? block_type.slice(0, -1) : "未识别";
-        return `<table id="simpleSearchAnalysisResTable"><tbody>
-        <tr><td colspan="4">${this.strong("简搜: 解析结果")}${this.goto_link_html}</td></tr>
+        return `
+        <span style="font-size: 16px; font-weight:bold">简搜: 解析结果 </span><span> (温馨提示: 拖动方框右下角可以调整显示区域)</span>
+        <table id="simpleSearchAnalysisResTable"><tbody>
         <tr><td>搜索方式:</td><td colspan="3">${type}</td></tr>
         <tr><td>搜索内容:</td><td>${keywords}</td><td colspan="2">排除内容: ${excluded}</td></tr>
         <tr><td>类型过滤:</td><td colspan="3">${block_type}</td></tr>
@@ -1003,9 +1316,9 @@ class SimpleSearchHZ extends siyuan.Plugin {
         </tbody></table>`
     }
     // 显示解析结果
-    set_analysis_result() {
-        const textarea = this.get_ele('#simpleSearchTextarea')
-        textarea.innerHTML = this.get_analysis_result_html(this.query.help);
+    update_analysis_result() {
+        const text_area = this.get_ele('#simpleSearchTextarea')
+        text_area.innerHTML = this.get_analysis_result_html(this.query.help);
     }
     // 禁用回车创建文档
     forbid_enter_create_file(searchNew){
@@ -1028,27 +1341,37 @@ class SimpleSearchHZ extends siyuan.Plugin {
         }
     }
     // dfs遍历文档树, 生成文档树html
-    show_new_file_tree(head, body, tree_json) {
+    show_res_file_tree(head, body, tree_json) {
         if (!tree_json || !Object.keys(tree_json).length) return;
         const child_key = 'hz_special_child';
-
+        const insert_res_ele = function() {
+            // 在body里面放上结果
+            const res = tree_json[child_key].cloneNode(true);
+            res.classList.remove('fn__none');
+            body.insertAdjacentElement('beforeend', res);
+        }
         if (head && Object.keys(tree_json).length == 1 && !tree_json[child_key]){
             // 只有一个文档, 与父级合并
             const pathSpan = head.querySelector('.b3-list-item__text.ariaLabel');
             if (pathSpan) {
                 const this_path = Object.keys(tree_json)[0];
-                // 获取当前路径文本
-                const currentPath = pathSpan.textContent;
-                // 拼接新字符串
-                const newPath = currentPath + '/' + this_path;
+                let newPath = this_path; // 全路径直接用this_path
+                if (!this.restree_cfg.all_path) {
+                    // 不是全路径, 就拼接到父级路径的后面
+                    // 新路径 = 父级路径 + 自身路径
+                    newPath = pathSpan.textContent + '/' + this_path;
+                }
                 // 更新文本内容
                 pathSpan.textContent = newPath;
                 // 如果需要同时更新aria-label属性
                 pathSpan.setAttribute('aria-label', newPath);
-
-                this.show_new_file_tree(head, body, tree_json[this_path]);
+                this.show_res_file_tree(head, body, tree_json[this_path]);
                 return;
             }
+        }
+        // 结果优先
+        if (this.restree_cfg.res_top && tree_json[child_key]) {
+            insert_res_ele();
         }
         // 多个文档, 创建路径节点
         for (let this_path of Object.keys(tree_json).sort()) {
@@ -1061,24 +1384,20 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 </span>
                 <span class="b3-list-item__graphic">📁</span>
                 <span class="b3-list-item__text ariaLabel" style="color: var(--b3-theme-on-surface)" aria-label="${this_path}">${this_path}</span>
-                </div><div class="HZ-simpleSearchListBody"></div>
+                </div><div class="simpleSearchListBody"></div>
             `);
             const new_body = body.lastElementChild;
             const new_head = new_body.previousElementSibling;
-            this.show_new_file_tree(new_head, new_body, tree_json[this_path]);
+            this.show_res_file_tree(new_head, new_body, tree_json[this_path]);
         }
-        // 最后防线
-        if (tree_json[child_key]) {
-            // 在body里面放上结果
-            const res = tree_json[child_key].cloneNode(true);
-            body.insertAdjacentElement('beforeend', res);
-            // body.replaceWith(res);
-            // res.classList.add('HZ-simpleSearchListBody');
+        // 结果放后面
+        if (!this.restree_cfg.res_top && tree_json[child_key]) {
+            insert_res_ele();
         }
     }
     // 增加新文档树之后, 需要适配一些事件
     // 这里的逻辑, 每次搜索动作都会触发
-    handle_new_tree_event_listern(new_tree) {
+    res_tree_event_listern(new_tree) {
         // 1.新文档树上监听鼠标事件, 同步给原节点
         new_tree.addEventListener('click', (event) => {
             const new_ele = event.target.closest('[data-type="search-item"]');
@@ -1117,13 +1436,14 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // 3.全部展开/全部折叠事件
         // 在刚打开时监听: handle_open_search_page
     }
-    // 更新显示 新文档树
-    handle_file_tree_display() {
+    // 处理 结果文档树的显示
+    handle_res_tree_display() {
         this.get_new_search_list()?.remove();
         const src_tree_list = this.get_search_list();
         src_tree_list.classList.remove("fn__none");
+        const tree_cfg = this.restree_cfg;
         // 开关是关的, 退出
-        if (!this.filetree_sw) return;
+        if (!tree_cfg.is_tree) return;
         // 搜索结果为空, 退出
         if (this.get_ele('[data-type="simple-search-new-disabled"]')) return;
         // 不分组, 退出
@@ -1134,7 +1454,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         const new_tree_list = src_tree_list.cloneNode();
         new_tree_list.id ="HZsimpleSearchList";
         new_tree_list.classList.remove("fn__none");
-        // src_tree_list.classList.add('fn__none');
+        src_tree_list.classList.add('fn__none');
         src_tree_list.after(new_tree_list);
         const new_tree_json= {};
         const fill_tree_json = function(path, file_parent) {
@@ -1143,11 +1463,14 @@ class SimpleSearchHZ extends siyuan.Plugin {
             // 按照路径填充结构体
             // todo: 无法处理相同路径的场景
             let current = new_tree_json;
+            let currentPath = ''; // 用于构建当前路径
             for (const part of parts) {
-                if (!current[part]) {
-                    current[part] = {};
+                currentPath = currentPath ? `${currentPath}/${part}` : part;
+                const key = tree_cfg.all_path ? currentPath : part;
+                if (!current[key]) {
+                    current[key] = {};
                 }
-                current = current[part];
+                current = current[key];
             }
             // 将这个文档的所有结果, 放到固定的字段里面
             current['hz_special_child'] = file_parent;
@@ -1161,9 +1484,13 @@ class SimpleSearchHZ extends siyuan.Plugin {
             fill_tree_json(path_str, file_parent_ele);
         }
         // 递归显示文档树结构
-        this.show_new_file_tree(null, new_tree_list, new_tree_json);
+        this.show_res_file_tree(null, new_tree_list, new_tree_json);
         // 处理监听事件
-        this.handle_new_tree_event_listern(new_tree_list);
+        this.res_tree_event_listern(new_tree_list);
+        new_tree_list.querySelector('.b3-list-item--focus')?.scrollIntoView({
+            behavior: 'smooth', // 可选：平滑滚动
+            block: 'center'   // 或 'start', 'center', 'end'
+        })
     }
     // 搜索结束后触发
     search_completed_callback(){
@@ -1178,7 +1505,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             // 禁用回车创建文档
             this.forbid_enter_create_file(ele);
             // 处理文档树显示
-            this.handle_file_tree_display();
+            this.handle_res_tree_display();
         }.bind(this));
     }
     // 搜索事件触发
@@ -1193,7 +1520,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.replace_src_search(data.detail.config);
         mylog("替换后参数", data.detail.config);
         // 2.2 显示解析结果
-        this.set_analysis_result();
+        this.update_analysis_result();
         // 3. 搜索结束后触发
         this.search_completed_callback();
     }
@@ -1274,12 +1601,20 @@ class SimpleSearchHZ extends siyuan.Plugin {
 
     // 布局初始化完成后, 触发
     onLayoutReady() {
+        this.css = null;
         this.page = null; // 搜索框所在的页面, 所有搜索都在此元素下搜索, 用于隔离 搜索页签和搜索弹窗
         this.query = {type:"", val:"", keywords:[], help:{}}; // 解析后的内容 {type: 搜索类型, val: 搜索内容, keywords: 关键词}
-        this.textarea_sw = false; // 辅助信息显示框 是否显示
-        this.filetree_sw = true; // 是否接管文档树显示
+        this.assist_sw = true; // 辅助信息显示框 是否显示
+        // 是否接管文档树显示
+        this.restree_cfg = {
+            is_tree   : true,      // 是否接管搜索结果
+            tree_style: "ediary",  // 文档树样式: 原生:native, 多彩:colorful, ediary
+            sync_file : true,      // 搜索结果的样式是否同步到文档树那里
+            res_top   : true,      // 文档下的结果是否置顶
+            all_path  : true,      // 显示全路径
+        }; 
 
-        this.css_init();
+        this.init_css_style();
         this.sy_event_init();
         // 重新加载后, 上次搜索历史会丢, 这里重新赋值一下
         // SYT.set_last_search_k();
@@ -1288,7 +1623,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
     }
 
     onunload() {
-        this.css_uninit();
+        this.uninit_css_style();
         this.sy_event_uninit()
         console.log("HZ simple search stop...")
     }

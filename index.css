@@ -7,68 +7,50 @@
     background-color: var(--b3-theme-primary-lighter);
     box-shadow: 0 0 0 0.5px var(--b3-theme-on-background);
 }
-/* 显示帮助信息的表格 */
-#simpleSearchHelpTable{
-    /* 边框线 */
-    border-collapse: collapse;
-    margin-top: 10px;
-    td{
-        border: 1px solid rgba(0, 0, 0, 0.2);
-        padding: 5px 8px;
+/* 快捷跳转区 */
+#simpleSearchQuickJump {display: contents;}
+
+/* 辅助信息显示区域 */
+#simpleSearchAssistArea {
+    padding: 0 5px;
+    /* 辅助信息显示区域 */
+    #simpleSearchTextarea {
+        resize: vertical;
+        font-family: var(--b3-font-family-code);
+        height: auto;
+        overflow-y: auto;
     }
-}
-/* 新增的文档树 */
-:root {
-    /* 竖线颜色 */
-    --HZ-sp-vertical-line-color-1: var(--b3-font-color7);
-    --HZ-sp-vertical-line-color-2: var(--b3-font-color6);
-    --HZ-sp-vertical-line-color-3: var(--b3-font-color9);
-    --HZ-sp-vertical-line-color-4: var(--b3-font-color11);
-    --HZ-sp-vertical-line-color-5: var(--b3-font-color7);
-    --HZ-sp-vertical-line-color-6: var(--b3-font-color6);
-    --HZ-sp-vertical-line-color-7: var(--b3-font-color9);
-    --HZ-sp-vertical-line-color-8: var(--b3-font-color11);
-    /* 竖线括号粗细 */
-    --HZ-sp-vertical-line-bracket-width: 2px;
-    /* 竖线括号圆角弧度 */
-    --HZ-sp-bracket-border-radius: 8px;
-    /* 折叠按钮宽度 */
-    --HZ-sp-arrow-button-width: 5px;
-    /* 竖线与父级竖线的距离 */
-    --HZ-sp-vertical-line-interval: 18px;
-    /* 结果与左边竖线的距离 */
-    --HZ-sp-search-res-pad-left: 2px;
-}
-#HZsimpleSearchList .HZ-simpleSearchListBody {
-    margin-left: var(--HZ-sp-vertical-line-interval);
-    border-top-left-radius: var(--HZ-sp-bracket-border-radius);
-    border-bottom-left-radius: var(--HZ-sp-bracket-border-radius);
-    &>div>[data-type="search-item"] {
-        padding-left: var(--HZ-sp-search-res-pad-left)!important;
+    
+    /* 显示帮助信息的表格 */
+    #simpleSearchHelpTable table{
+        /* 边框线 */
+        border-collapse: collapse;
+        margin-top: 10px;
+        td{
+            border: 1px solid rgba(0, 0, 0, 0.2);
+            padding: 5px 8px;
+        }
     }
-    .b3-list-item__toggle--hl {
-        padding-left: var(--HZ-sp-arrow-button-width);
+    /* 文档树样式 设置页面 */
+    #simpleSearchAssistSetting {
+        .section-title {
+            font-weight: 600;
+            color: #2c3e50;
+            display: flex;
+            align-items: center;
+            margin-top: 12px;
+            margin-bottom: -4px;
+        }
+
+        .section-title i {
+            margin-right: 8px;
+        }
+
+        .radio-group {
+            display: flex;
+            gap: 20px;
+        }
     }
-    border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-1);
-    .HZ-simpleSearchListBody {
-        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-2);
-    }
-    .HZ-simpleSearchListBody .HZ-simpleSearchListBody {
-        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-3);
-    }
-    .HZ-simpleSearchListBody .HZ-simpleSearchListBody .HZ-simpleSearchListBody {
-        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-4);
-    }
-    .HZ-simpleSearchListBody .HZ-simpleSearchListBody .HZ-simpleSearchListBody .HZ-simpleSearchListBody {
-        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-5);
-    }
-    .HZ-simpleSearchListBody .HZ-simpleSearchListBody .HZ-simpleSearchListBody .HZ-simpleSearchListBody .HZ-simpleSearchListBody {
-        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-6);
-    }
-    .HZ-simpleSearchListBody .HZ-simpleSearchListBody .HZ-simpleSearchListBody .HZ-simpleSearchListBody .HZ-simpleSearchListBody .HZ-simpleSearchListBody {
-        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-7);
-    }
-    .HZ-simpleSearchListBody .HZ-simpleSearchListBody .HZ-simpleSearchListBody .HZ-simpleSearchListBody .HZ-simpleSearchListBody .HZ-simpleSearchListBody .HZ-simpleSearchListBody {
-        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-8);
-    }
+    /* 解析结果 */
+    /* #simpleSearchAnalysisResTable */
 }
