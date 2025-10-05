@@ -828,7 +828,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     /* 结果与左边竖线的距离 */
                     --HZ-sp-search-res-pad-left: 26px;
                     /* 竖线颜色 */
-                    --HZ-sp-vertical-line-color: black;
+                    --HZ-sp-vertical-line-color: var(--b3-theme-on-surface-light);
                 }
 
                 #HZsimpleSearchList .simpleSearchListBody {
