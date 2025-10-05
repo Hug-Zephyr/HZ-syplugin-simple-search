@@ -1604,11 +1604,11 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.css = null;
         this.page = null; // 搜索框所在的页面, 所有搜索都在此元素下搜索, 用于隔离 搜索页签和搜索弹窗
         this.query = {type:"", val:"", keywords:[], help:{}}; // 解析后的内容 {type: 搜索类型, val: 搜索内容, keywords: 关键词}
-        this.assist_sw = true; // 辅助信息显示框 是否显示
+        this.assist_sw = false; // 辅助信息显示框 是否显示
         // 是否接管文档树显示
         this.restree_cfg = {
             is_tree   : true,      // 是否接管搜索结果
-            tree_style: "ediary",  // 文档树样式: 原生:native, 多彩:colorful, ediary
+            tree_style: "native",  // 文档树样式: 原生:native, 多彩:colorful, ediary
             sync_file : true,      // 搜索结果的样式是否同步到文档树那里
             res_top   : true,      // 文档下的结果是否置顶
             all_path  : true,      // 显示全路径
