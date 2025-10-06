@@ -18,6 +18,7 @@
         resize: vertical;
         font-family: var(--b3-font-family-code);
         height: auto;
+        max-height: 450px;
         overflow-y: auto;
     }
     

@@ -959,7 +959,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             ${get_html_setting_once("", "接管搜索结果", "开启后, 搜索结果将以树的样式进行显示, 仅在分组下生效", get_html_check_sw("simpleSearchTreeSw", cfg.is_tree))}
             ${get_html_radio_sw(cfg.tree_style)}
             ${get_html_head('🔍', '搜索结果相关')}
-            ${get_html_setting_once("", "搜索结果优先", "开启后，搜索结果将显示在路径上面, 建议开启, 因为关闭会导致上下键顺序不对, ", get_html_check_sw("simpleSearchResTop", cfg.res_top))}
+            ${get_html_setting_once("", "搜索结果优先", "开启后，搜索结果将显示在路径上面, 建议开启, 因为关闭会导致上下键跳转的顺序不对", get_html_check_sw("simpleSearchResTop", cfg.res_top))}
             ${get_html_setting_once("", "显示全路径", "开启后, 将显示全路径, 而不是只有文档名", get_html_check_sw("simpleSearchAllPath", cfg.all_path))}
         </div>`;
         // ${get_html_setting_once("", "树样式同步至文档树", "开启后, 文档树和大纲会修改成与搜索结果相同的样式", get_html_check_sw("simpleSearchSyncTree", cfg.sync_file))}
