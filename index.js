@@ -738,7 +738,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.uninit_css_style();
         let css = "";
         // 竖线风格
-        const tree_style = this.restree_cfg.tree_style;
+        const tree_style = this.g_setting.restree_cfg.tree_style;
         if (tree_style == 'native') {
             css = `
                 /* 新增的文档树 */
@@ -907,7 +907,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.css = js_insert_css(css);
     }
     get_tree_style_setting_html() {
-        const cfg = this.restree_cfg;
+        const cfg = this.g_setting.restree_cfg;
         const get_html_head = function (icon, str) {
             return `<div class="section-title"><i>${icon}</i> ${str}</div>`
         }
@@ -979,12 +979,14 @@ class SimpleSearchHZ extends siyuan.Plugin {
             simpleSearchStyleColorful: 'colorful',   // 树样式: 多彩
             simpleSearchStyleEdiary  : 'ediary',     // 树样式: eDiary风格
         }
+        // todo 这里的监听事件可以优化一下, 只监听一个
         text_area.querySelectorAll('input[type="checkbox"]').forEach(ele => {
             ele.addEventListener('change', (event) => {
                 // 通过开关id找到开关存储位置的key
                 const key = id_map[event.target.id];
                 // 给开关赋值
-                this.restree_cfg[key] = event.target.checked;
+                this.g_setting.restree_cfg[key] = event.target.checked;
+                this.save_setting();
                 // 更新css
                 this.init_css_style();
                 // 更新搜索结果
@@ -998,7 +1000,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
             radio.addEventListener('change', (event) => {
                 const ele = event.target;
                 if (!ele.checked) return;
-                this.restree_cfg.tree_style = id_map[ele.id]
+                this.g_setting.restree_cfg.tree_style = id_map[ele.id]
+                this.save_setting();
                 this.init_css_style();
                 this.handle_res_tree_display();
             });
@@ -1008,7 +1011,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
     inseart_assist_area() {
         // 1. 信息显示框, 一定插入, 通过开关控制是否显示
         const criteria = this.get_ele('#criteria');
-        const is_show = this.assist_sw ? "contents" : "none";
+        const is_show = this.g_setting.assist_sw ? "contents" : "none";
         criteria.insertAdjacentHTML('afterend', `
             <div id="simpleSearchAssistArea" style="display: ${is_show};">
                 <div id="simpleSearchTextarea" class="fn__block b3-text-field ${is_show}" placeholder="简搜: 辅助信息" spellcheck="false"></div>
@@ -1106,7 +1109,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             label: "简搜: 点击隐藏辅助信息框",
             display: "contents",
         }
-        const sw = this.assist_sw ? disable_sw : enable_sw;
+        const sw = this.g_setting.assist_sw ? disable_sw : enable_sw;
         icon_parent.insertAdjacentHTML('beforeend', `
             <span class="fn__space"></span>
             <span id="simpleSearchShowSw" aria-label="${sw.label}" class="block__icon ariaLabel" data-position="9south">
@@ -1118,16 +1121,17 @@ class SimpleSearchHZ extends siyuan.Plugin {
         const assist_area = this.get_ele('#simpleSearchAssistArea')
         sw_ele.addEventListener('click', () => {
             // 根据图标更新当前状态
-            this.assist_sw = assist_area.style.display != "none";
+            this.g_setting.assist_sw = assist_area.style.display != "none";
             // 点击说明要切换开关
-            this.assist_sw = !this.assist_sw;
+            this.g_setting.assist_sw = !this.g_setting.assist_sw;
+            this.save_setting();
             // 按照新的开关, 重新设置样式
-            const sw = this.assist_sw ? disable_sw : enable_sw;
+            const sw = this.g_setting.assist_sw ? disable_sw : enable_sw;
             sw_ele.setAttribute('aria-label', sw.label);
             use_ele.setAttribute('xlink:href', sw.icon);
             assist_area.style.display = sw.display;
             const jump_div = this.get_ele('#simpleSearchQuickJump');
-            if (this.assist_sw) {
+            if (this.g_setting.assist_sw) {
                 jump_div.classList.remove('fn__none');
             }
             else {
@@ -1146,7 +1150,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         const text_area = this.get_ele('#simpleSearchTextarea')
         help_ele.addEventListener('click', () => {
             text_area.innerHTML = this.get_help_info_html();
-            if (!this.assist_sw) {
+            if (!this.g_setting.assist_sw) {
                 sw_ele.click();
             }
         });
@@ -1154,7 +1158,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // 3. 增加帮助与反馈按钮
         const save_ele = this.get_ele('[data-type="saveCriterion"]');
         save_ele.insertAdjacentHTML('beforebegin', `
-            <div id="simpleSearchQuickJump" class="${this.assist_sw ? "" : 'fn__none'}" >
+            <div id="simpleSearchQuickJump" class="${this.g_setting.assist_sw ? "" : 'fn__none'}" >
             <button id="simpleSearchGotoReadme" class="b3-button b3-button--small b3-button--outline fn__flex-center ariaLabel" aria-label="简搜: 点击跳转至gitee的readme">帮助与反馈</button>
             <span class="fn__space"></span>
             <button id="simpleSearchDisplayTreeSetting" class="b3-button b3-button--small b3-button--outline fn__flex-center ariaLabel" aria-label="简搜: 点击打开搜索结果样式的设置页面">搜索结果样式</button>
@@ -1355,7 +1359,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             if (pathSpan) {
                 const this_path = Object.keys(tree_json)[0];
                 let newPath = this_path; // 全路径直接用this_path
-                if (!this.restree_cfg.all_path) {
+                if (!this.g_setting.restree_cfg.all_path) {
                     // 不是全路径, 就拼接到父级路径的后面
                     // 新路径 = 父级路径 + 自身路径
                     newPath = pathSpan.textContent + '/' + this_path;
@@ -1369,7 +1373,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             }
         }
         // 结果优先
-        if (this.restree_cfg.res_top && tree_json[child_key]) {
+        if (this.g_setting.restree_cfg.res_top && tree_json[child_key]) {
             insert_res_ele();
         }
         // 多个文档, 创建路径节点
@@ -1390,7 +1394,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             this.show_res_file_tree(new_head, new_body, tree_json[this_path]);
         }
         // 结果放后面
-        if (!this.restree_cfg.res_top && tree_json[child_key]) {
+        if (!this.g_setting.restree_cfg.res_top && tree_json[child_key]) {
             insert_res_ele();
         }
     }
@@ -1440,7 +1444,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.get_new_search_list()?.remove();
         const src_tree_list = this.get_search_list();
         src_tree_list.classList.remove("fn__none");
-        const tree_cfg = this.restree_cfg;
+        const tree_cfg = this.g_setting.restree_cfg;
         // 开关是关的, 退出
         if (!tree_cfg.is_tree) return;
         // 搜索结果为空, 退出
@@ -1605,27 +1609,48 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.eventBus.on("loaded-protyle-static", this.loadedProtyleStaticEvent.bind(this));
     }
 
+    load_setting(func) {
+        this.loadData("settings.json").then((settingFile)=>{
+            // 解析并载入配置
+            try {
+                mylog("载入配置: ", settingFile);
+                Object.assign(this.g_setting, settingFile);
+            }catch(e){
+                mylog("og-fdb载入配置时发生错误, 使用默认配置", e);
+            }
+            func();
+        }, (e)=> {
+            mylog("配置文件读入失败", e);
+        });
+    }
+    save_setting(){
+        this.saveData("settings.json", JSON.stringify(this.g_setting));
+        mylog("保存配置: ", this.g_setting);
+    }
     // 布局初始化完成后, 触发
     onLayoutReady() {
         this.css = null;
         this.page = null; // 搜索框所在的页面, 所有搜索都在此元素下搜索, 用于隔离 搜索页签和搜索弹窗
         this.query = {type:"", val:"", keywords:[], help:{}}; // 解析后的内容 {type: 搜索类型, val: 搜索内容, keywords: 关键词}
-        this.assist_sw = false; // 辅助信息显示框 是否显示
-        // 是否接管文档树显示
-        this.restree_cfg = {
-            is_tree   : true,      // 是否接管搜索结果
-            tree_style: "native",  // 文档树样式: 原生:native, 多彩:colorful, ediary
-            sync_file : true,      // 搜索结果的样式是否同步到文档树那里
-            res_top   : true,      // 文档下的结果是否置顶
-            all_path  : true,      // 显示全路径
-        }; 
+        this.g_setting = {
+            assist_sw  : true,  // 辅助信息显示框 是否显示
+            restree_cfg: {
+                is_tree    : true,      // 是否接管搜索结果
+                tree_style : "native",  // 文档树样式: 原生:native, 多彩:colorful, ediary
+                sync_file  : true,      // 搜索结果的样式是否同步到文档树那里
+                res_top    : true,      // 文档下的结果是否置顶
+                all_path   : true,      // 显示全路径
+            },
+        }
+        this.load_setting(() => {
+            this.save_setting();
+            this.init_css_style();
+            this.sy_event_init();
+            // 重新加载后, 上次搜索历史会丢, 这里重新赋值一下
+            // SYT.set_last_search_k();
 
-        this.init_css_style();
-        this.sy_event_init();
-        // 重新加载后, 上次搜索历史会丢, 这里重新赋值一下
-        // SYT.set_last_search_k();
-
-        console.log("HZ simple search start...")
+            console.log("HZ simple search start...")
+        });
     }
 
     onunload() {
