@@ -1346,9 +1346,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         const child_key = 'hz_special_child';
         const insert_res_ele = function() {
             // 在body里面放上结果
-            const res = tree_json[child_key].cloneNode(true);
-            res.classList.remove('fn__none');
-            body.insertAdjacentElement('beforeend', res);
+            tree_json[child_key].classList.remove('fn__none');
+            body.insertAdjacentElement('beforeend', tree_json[child_key]);
         }
         if (head && Object.keys(tree_json).length == 1 && !tree_json[child_key]){
             // 只有一个文档, 与父级合并
@@ -1473,7 +1472,14 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 current = current[key];
             }
             // 将这个文档的所有结果, 放到固定的字段里面
-            current['hz_special_child'] = file_parent;
+            const file_parent_tmp = file_parent.cloneNode(true);
+            if (current['hz_special_child']) {
+                // 如果之前存在, 说明路径相同, 拼接在一起
+                current['hz_special_child'].innerHTML += file_parent_tmp.innerHTML;
+            }
+            else {
+                current['hz_special_child'] = file_parent_tmp;
+            }
         }
         // 遍历原始搜索结果, 解析成文档树
         for (let i = 0; i < src_tree_list.children.length; i+=2) {
