@@ -414,12 +414,12 @@ function search_translator(arg) {
 
         // 匹配关键词
         for (let word of keywords) {
-            sqlKeyWords += "and content like '%" + word + "%' ";
+            sqlKeyWords += `and (content like '%${word}%' or name like '%${word}%' or alias like '%${word}%' or memo like '%${word}%') `;
         }
 
         // 排除关键词
         for (let word of excludedKeywords) {
-            sqlKeyWords += "and content not like '%" + word + "%' ";
+            sqlKeyWords += `and content not like '%${word}%' and name not like '%${word}%' and alias not like '%${word}%' and memo not like '%${word}%' `;
         }
         return sqlKeyWords ? `(${sqlKeyWords.slice(4)})` : "true";
     }
