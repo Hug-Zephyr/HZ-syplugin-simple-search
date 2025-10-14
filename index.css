@@ -10,6 +10,22 @@
 /* 快捷跳转区 */
 #simpleSearchQuickJump {display: contents;}
 
+
+/* 历史搜索记录 */
+#simpleSearchHistoryList {
+    position: fixed;
+    z-index: 10;
+    /* 高亮当前选中项 */
+    .b3-list-item--focus {
+        background-color: lightskyblue;
+    }
+    /* 高亮匹配到的关键词 */
+    .HZ-search-history-highlight {
+        font-weight:bold;
+        color: var(--b3-font-color6);
+    }
+} 
+
 /* 辅助信息显示区域 */
 #simpleSearchAssistArea {
     padding: 0 5px;
