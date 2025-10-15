@@ -17,7 +17,7 @@
 2. **互斥警告**：本插件与「简易搜索」插件**完全互斥**。若要使用本插件，请务必**彻底卸载「简易搜索」**（仅关闭开关无效）。
 3. **遇到问题？**
    - 先尝试重启思源笔记；
-   - 若仍存在异常，请前往 [链滴社区 @HugZephyr](https://ld246.com/member/HugZephyr) 联系我，或在[链滴帖子](https://ld246.com/article/1754277290689)下留言，或提交 [GitHub Issue](https://github.com/Hug-Zephyr/HZ-syplugin-simple-search/issues)。
+   - 若仍存在异常，请前往 [链滴社区 @HugZephyr](https://ld246.com/member/HugZephyr) 联系我，或在[链滴帖子](https://ld246.com/article/1759810985885)下留言，或提交 [GitHub Issue](https://github.com/Hug-Zephyr/HZ-syplugin-simple-search/issues)。
 
 ---
 ## 最近更新
