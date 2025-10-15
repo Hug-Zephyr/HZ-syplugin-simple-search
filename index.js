@@ -1589,7 +1589,12 @@ class SimpleSearchHZ extends siyuan.Plugin {
             const new_tree = this.get_new_search_list();
             if (new_tree && !this.is_show_history_list()) {
                 // 没有历史记录列表 && 存在新列表 就接管上下键
+                // 原生搜索历史存在, 不处理
                 if (document.querySelector('[data-name="search-history"]')) return;
+                // 其他位置, 不处理
+                const active_ele = document.activeElement;
+                if (active_ele != document.body && active_ele != this.get_search_input()) return;
+
                 event.preventDefault(); // 防止快捷键默认行为, 不加这个会导致光标在input里面移动
                 event.stopPropagation(); // 阻止传播
                 // 找到 选中的节点在搜索结果的位置
