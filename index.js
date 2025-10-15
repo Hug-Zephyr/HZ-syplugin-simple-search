@@ -1593,7 +1593,9 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 if (document.querySelector('[data-name="search-history"]')) return;
                 // 其他位置, 不处理
                 const active_ele = document.activeElement;
-                if (active_ele != document.body && active_ele != this.get_search_input()) return;
+                if (!(active_ele == document.body || 
+                        active_ele == this.get_search_input() || 
+                        active_ele == this.get_ele('#replaceInput'))) return
 
                 event.preventDefault(); // 防止快捷键默认行为, 不加这个会导致光标在input里面移动
                 event.stopPropagation(); // 阻止传播
