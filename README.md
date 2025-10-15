@@ -17,10 +17,14 @@
 2. **互斥警告**：本插件与「简易搜索」插件**完全互斥**。若要使用本插件，请务必**彻底卸载「简易搜索」**（仅关闭开关无效）。
 3. **遇到问题？**
    - 先尝试重启思源笔记；
-   - 若仍存在异常，请前往 [链滴社区 @HugZephyr](https://ld246.com/member/HugZephyr) 联系我，或在[链滴帖子](https://ld246.com/article/1754277290689)下留言，或提交 [GitHub Issue](https://github.com/Hug-Zephyr/HZ-syplugin-simple-search/issues)。
+   - 若仍存在异常，请前往 [链滴社区 @HugZephyr](https://ld246.com/member/HugZephyr) 联系我，或在[链滴帖子](https://ld246.com/article/1759810985885)下留言，或提交 [GitHub Issue](https://github.com/Hug-Zephyr/HZ-syplugin-simple-search/issues)。
 
 ---
 ## 最近更新
+
+### [2025/10/15_21:29:07] `develop_v1.2.1_optimize`
+- [修复] 部分bug
+
 ### [2025/10/14_17:22:50] `release_v1.2`
 * [增加] 设置持久化, 重启思源后, 不会重置为默认
 * [增加] 接管历史记录, 输入搜索内容后, 自动弹出匹配到的搜索历史
@@ -335,6 +339,10 @@
 ---
 
 ## 📅 更新日志
+### [2025/10/15_21:29:07] `develop_v1.2.1_optimize`
+- [修复] issue #6 搜索结果树双击不会打开文档
+- [修复] issue #7 在文档内上下键失效
+
 ### [2025/10/14_17:22:50] `release_v1.2`
 - 发布v1.2版本
 
