@@ -1823,8 +1823,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 cancelable: true,
                 composed: event.composed,
                 view: event.view,
-                // detail: event.detail, // 关键！
-                detail: 1, // 关键！
+                detail: event.detail ? event.detail : 1, // 关键！
                 screenX: event.screenX,
                 screenY: event.screenY,
                 clientX: event.clientX,
