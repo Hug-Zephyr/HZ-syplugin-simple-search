@@ -15,10 +15,6 @@
 #simpleSearchHistoryList {
     position: fixed;
     z-index: 10;
-    /* 高亮当前选中项 */
-    .b3-list-item--focus {
-        background-color: lightskyblue;
-    }
     /* 高亮匹配到的关键词 */
     .HZ-search-history-highlight {
         font-weight:bold;
