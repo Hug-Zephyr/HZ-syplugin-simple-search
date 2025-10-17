@@ -906,6 +906,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         return this.get_ele('#searchInput');
     }
     dispatch_input() {
+        // console.log('手动触发input事件');
         this.get_search_input()?.dispatchEvent(new InputEvent("input"));
     }
     get_search_history_ul() {
@@ -1478,21 +1479,37 @@ class SimpleSearchHZ extends siyuan.Plugin {
     handle_search_history() {
         //嵌入搜索历史列表
         this.insert_search_history_list();
+        const inputElement = this.get_search_input();
 
         // input事件触发搜索历史列表
+        // 中文触发顺序: start -> input -> input -> end
+        // 英文触发顺序: input
         let timerId = 0;
-        this.get_search_input()?.addEventListener('input', (event) => {
-            clearTimeout(timerId);
-            // console.log('input事件触发', this.history_input_flag, this.forbid_input_event);
-            // 开关没开直接退出
+        inputElement?.addEventListener('compositionend', (event) => {
             if (!this.g_setting.history_auto) return;
+            // 因为思源原生也会监听compositionend事件, 然后触发与原生input一样的逻辑
+            // 如果不阻止, 相当于还是触发了原生input事件, 这样的话, 下面的接管的逻辑就不管用了
+            // 所以要阻止, 然后触发input, 由下面的逻辑判断是否触发原生input
+            event.stopPropagation(); // 阻止传播
+            this.dispatch_input()
+        }, true);
+        inputElement?.addEventListener('input', (event) => {
+            // console.log('input事件触发', event.inputType, event.target.value, this.history_input_flag, event.isComposing);
+            if (!this.g_setting.history_auto) return;
+            if (event.isComposing) {
+                event.stopPropagation(); // 阻止传播
+                // console.log('任何地方都不处理这次的input');
+                return;
+            }
+            clearTimeout(timerId);
             if (this.history_input_flag) {
                 this.history_input_flag = false;
-                // console.log('这次input是搜索历史触发的');
+                // console.log('由搜索历史触发 原生input事件');
                 return;
             }
             // 阻止传播, 阻止原生搜索事件触发
             event.stopPropagation();
+            // console.log('搜索历史处理input');
             // 根据输入的搜索内容, 过滤出符合条件的历史记录
             const input = event.target.value;
             const history = matchHistory(input, SYT.get_search_history());
@@ -1501,7 +1518,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         }, true);
 
         // 搜索历史列表相关事件监听
-        this.get_search_input()?.addEventListener('keydown', (event) => {
+        inputElement?.addEventListener('keydown', (event) => {
             if (event.ctrlKey || event.shiftKey || event.metaKey) return;
             const type = event.key.toLowerCase();
             if (event.altKey) {
