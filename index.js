@@ -1494,8 +1494,10 @@ class SimpleSearchHZ extends siyuan.Plugin {
             this.dispatch_input()
         }, true);
         inputElement?.addEventListener('input', (event) => {
-            // console.log('input事件触发', event.inputType, event.target.value, this.history_input_flag, event.isComposing);
+            // console.log('input事件触发', event.inputType, event.target.value, this.history_input_flag, event.isComposing, this.is_searching);
             if (!this.g_setting.history_auto) return;
+            // 上次触发的搜索还没有结束, 不处理这次的input, 走思源原生input逻辑
+            if (this.is_searching) return;
             if (event.isComposing) {
                 event.stopPropagation(); // 阻止传播
                 // console.log('任何地方都不处理这次的input');
@@ -1504,6 +1506,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             clearTimeout(timerId);
             if (this.history_input_flag) {
                 this.history_input_flag = false;
+                this.is_searching = true;
                 // console.log('由搜索历史触发 原生input事件');
                 return;
             }
@@ -1694,8 +1697,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         if (method_map[res.type] == undefined) return;
         // 搜索类型
         query_arg.method = method_map[res.type].id;
-        this.get_ele("#searchSyntaxCheck").setAttribute('aria-label', method_map[res.type].aria);
-        this.get_ele("#searchSyntaxCheck>svg>use").setAttribute('xlink:href', method_map[res.type].icon);
+        this.get_ele("#searchSyntaxCheck")?.setAttribute('aria-label', method_map[res.type].aria);
+        this.get_ele("#searchSyntaxCheck>svg>use")?.setAttribute('xlink:href', method_map[res.type].icon);
         // 搜索内容
         query_arg.query = res.val;
         // 如果是 -e 扩展搜索, 就按照文档分组
@@ -1748,7 +1751,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
     }
     // 显示解析结果
     update_analysis_result() {
-        const text_area = this.get_ele('#simpleSearchTextarea')
+        const text_area = this.get_ele('#simpleSearchTextarea');
+        if (!text_area) return;
         text_area.innerHTML = this.get_analysis_result_html(this.query.help);
     }
     // 禁用回车创建文档
@@ -1949,11 +1953,13 @@ class SimpleSearchHZ extends siyuan.Plugin {
             this.forbid_enter_create_file(ele);
             // 处理文档树显示
             this.show_search_res_tree();
+            this.is_searching = false;
         }.bind(this));
     }
     // 搜索事件触发
     inputSearchEvent(data) {
         this.page = data.detail.searchElement.closest(".fn__flex-column");
+        this.is_searching = true;
         mylog('搜索事件触发', data, data.detail.config, '触发页面', this.page);
 
         // 1. 处理 第一次打开搜索页面, 打上标记, 而不是缓存
@@ -2064,8 +2070,9 @@ class SimpleSearchHZ extends siyuan.Plugin {
     }
     // 布局初始化完成后, 触发
     onLayoutReady() {
-        this.css               = null;
-        this.page              = null; // 搜索框所在的页面, 所有搜索都在此元素下搜索, 用于隔离 搜索页签和搜索弹窗
+        this.css          = null;
+        this.page         = null;  // 搜索框所在的页面, 所有搜索都在此元素下搜索, 用于隔离 搜索页签和搜索弹窗
+        this.is_searching = false; // 是否正在搜索
 
         this.query        = {type:"", val:"", keywords:[], help:{}}; // 解析后的内容 {type: 搜索类型, val: 搜索内容, keywords: 关键词}
         this.g_setting    = {
