@@ -1973,7 +1973,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.search_completed_callback();
     }
 
-    highlightKeywords(search_list_text_nodes, keyword, highlight_type) {
+    highlightKeywords(search_list_text_nodes, keyword) {
         const str = keyword.trim().toLowerCase();
         const ranges = search_list_text_nodes // 查找所有文本节点是否包含搜索词
             .filter(el => {
@@ -1997,11 +1997,10 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     return range;
                 });
             });
-        const searchResultsHighlight = new Highlight(...ranges.flat()); // 创建高亮对象
-        CSS.highlights.set(highlight_type, searchResultsHighlight);     // 注册高亮
+        return ranges;
     }
     // 在界面加载完毕后高亮关键词
-    loadedProtyleStaticEvent(data=null, ) {
+    loadedProtyleStaticEvent(data=null) {
         mylog('加载成功, 开始高亮', data);
         const query = this.query;
         if (!query) return;
@@ -2015,11 +2014,18 @@ class SimpleSearchHZ extends siyuan.Plugin {
         if (!search_list) search_list = this.get_search_list();
         if (!search_list) return;
 
+        // 高亮 搜索结果列表里面的
         // 获取所有具有 b3-list-item__text 类的节点的文本子节点
         const search_list_text_nodes = Array.from(search_list.querySelectorAll(".b3-list-item__text:not(.ariaLabel)"), el => el.firstChild);
+        const allRanges = []; // 收集所有高亮范围
         query.keywords.forEach((keyword) => {
-            this.highlightKeywords(search_list_text_nodes, keyword, "highlight-keywords-search-list");
+            const ranges = this.highlightKeywords(search_list_text_nodes, keyword); // 收集当前关键词的高亮范围
+            allRanges.push(...ranges); // 合并到总范围
         });
+        const searchResultsHighlight = new Highlight(...allRanges.flat()); // 创建合并后的高亮对象
+        CSS.highlights.set("highlight-keywords-search-list", searchResultsHighlight); // 注册合并的高亮
+
+        // 高亮 点击搜索结果文档预览里面的
         // 创建 createTreeWalker 迭代器，用于遍历文本节点，保存到一个数组
         const search_preview = this.get_ele('#searchPreview')
         const tree_walker = document.createTreeWalker(search_preview.children[1].children[0], NodeFilter.SHOW_TEXT);
@@ -2031,9 +2037,13 @@ class SimpleSearchHZ extends siyuan.Plugin {
             }
             current_node = tree_walker.nextNode();
         }
+        const previewRanges = [];
         query.keywords.forEach((keyword) => {
-            this.highlightKeywords(search_preview_text_nodes, keyword, "highlight-keywords-search-preview");
+            const ranges = this.highlightKeywords(search_preview_text_nodes, keyword); // 收集搜索预览的高亮范围
+            previewRanges.push(...ranges);
         });
+        const searchPreviewHighlight = new Highlight(...previewRanges.flat());
+        CSS.highlights.set("highlight-keywords-search-preview", searchPreviewHighlight); // 注册搜索预览的高亮
     }
 
     sy_event_uninit() {
