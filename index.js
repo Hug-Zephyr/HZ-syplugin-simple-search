@@ -2070,6 +2070,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
     }
     // 布局初始化完成后, 触发
     onLayoutReady() {
+        if (window.siyuan.isPublish) return;
         this.css          = null;
         this.page         = null;  // 搜索框所在的页面, 所有搜索都在此元素下搜索, 用于隔离 搜索页签和搜索弹窗
         this.is_searching = false; // 是否正在搜索
@@ -2097,6 +2098,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
     }
 
     onunload() {
+        if (window.siyuan.isPublish) return;
         this.uninit_css_style();
         this.sy_event_uninit()
         console.log("HZ simple search stop...")

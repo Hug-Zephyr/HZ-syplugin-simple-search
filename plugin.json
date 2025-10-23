@@ -6,6 +6,7 @@
   "minAppVersion": "3.2.1",
   "backends": ["all"],
   "frontends": ["desktop", "desktop-window", "browser-desktop"],
+  "disabledInPublish": true,
   "displayName": {
     "default": "Simple Search HZ",
     "zh_CN": "简搜"
