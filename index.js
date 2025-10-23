@@ -275,6 +275,7 @@ function search_translator(arg) {
     const help             = {   // 帮助信息存储
         ret_str    : "",
         type       : "",
+        group_file : false,
         keywords   : [],
         excluded   : [],
         block_type : {},
@@ -293,6 +294,7 @@ function search_translator(arg) {
         }
         help.ret_str  = ret;
         if (help.type.length == 0) help.type = type;
+        help.group_file = !!options.match(/e/);
         help.keywords = keywords;
         help.excluded = excludedKeywords;
         if (Object.keys(help.block_type).length == 0 && type != '-s') {
@@ -393,38 +395,39 @@ function search_translator(arg) {
         }
         return querySyntax;
     }
-
-    // [构造搜索语句] 扩展搜索
-    const _buildExtendedSearchQuery = function() {
-        let sqlExtendedSearch = "select path from blocks where type ='d' ";
-        let sqlContentLike = "";
-        for (let word of keywords) {
-            sqlExtendedSearch += "and path in (select path from blocks where content like '%" + word + "%') ";
-            sqlContentLike += "or content like '%" + word + "%' ";
+    const _buildSqlKeyWordsOnce = function(word, is_exclude = false) {
+        if (is_exclude) {
+            return `(content not like '%${word}%' and name not like '%${word}%' and alias not like '%${word}%' and memo not like '%${word}%')`;
         }
-        for (let word of excludedKeywords) {
-            sqlExtendedSearch += "and path not in (select path from blocks where content like '%" + word + "%') ";
+        else {
+            return `(content like '%${word}%' or name like '%${word}%' or alias like '%${word}%' or memo like '%${word}%')`;
         }
-        help.type = '-e';
-        return "-s" + 'select * from blocks where ' + SYT.SQL_FLAG + ' and path in (' +
-            sqlExtendedSearch + ") and (" + sqlContentLike.slice(3) + ") and type not rlike '^[libs]$' " +
-            defaultOrderBy;
     }
 
     // [拼接sql] 过滤关键词
-    const _buildSqlKeyWords = function() {
+    const _buildSqlKeyWords = function(is_group_file) {
         let sqlKeyWords = "";
-
-        // 匹配关键词
-        for (let word of keywords) {
-            sqlKeyWords += `and (content like '%${word}%' or name like '%${word}%' or alias like '%${word}%' or memo like '%${word}%') `;
+        if (is_group_file) {
+            // 文档模式
+            for (let word of keywords) {
+                sqlKeyWords += `or ${_buildSqlKeyWordsOnce(word)} `;
+            }
+            // 排除关键词, 文档模式不需要处理
+            return sqlKeyWords ? `(${sqlKeyWords.slice(3)})` : "true";
         }
-
-        // 排除关键词
-        for (let word of excludedKeywords) {
-            sqlKeyWords += `and content not like '%${word}%' and name not like '%${word}%' and alias not like '%${word}%' and memo not like '%${word}%' `;
+        else {
+            // 块模式
+            // 匹配关键词
+            for (let word of keywords) {
+                sqlKeyWords += `and ${_buildSqlKeyWordsOnce(word)} `;
+            }
+    
+            // 排除关键词
+            for (let word of excludedKeywords) {
+                sqlKeyWords += `and ${_buildSqlKeyWordsOnce(word, true)} `;
+            }
+            return sqlKeyWords ? `(${sqlKeyWords.slice(4)})` : "true";
         }
-        return sqlKeyWords ? `(${sqlKeyWords.slice(4)})` : "true";
     }
 
     // [拼接sql] 过滤块类型
@@ -497,6 +500,24 @@ function search_translator(arg) {
             sqlTypeRlike = `type rlike '^[${types}]$' `;
         }
         return sqlTypeRlike ? `(${sqlTypeRlike})` : "true";
+    }
+    // [拼接sql] 以文档维度,过滤关键词
+    const _buildSqlGroupByFile = function() {
+        let sqlGroupByFile = "";
+        if (options.match(/e/)) {
+            // 文档模式才处理
+            let sqlTypeRlike = 'and ' + _buildSqlTypeRlike(options);
+            if (sqlTypeRlike == 'and true') sqlTypeRlike = '';
+            // 暂时先不处理块类型
+            for (let word of keywords) {
+                sqlGroupByFile += `and root_id in (select root_id from blocks where ${_buildSqlKeyWordsOnce(word)}) `;
+            }
+            // 排除关键词
+            for (let word of excludedKeywords) {
+                sqlGroupByFile += `and root_id not in (select root_id from blocks where ${_buildSqlKeyWordsOnce(word)}) `;
+            }
+        }
+        return sqlGroupByFile ? `(${sqlGroupByFile.slice(4)})` : "true";
     }
     // [拼接sql] 自定义路径
     const _buildSqlCustomPath = function() {
@@ -671,9 +692,11 @@ function search_translator(arg) {
     const _buildSqlSearchQuery = function() {
         let sqlPrefix = 'select * from blocks where ' + SYT.SQL_FLAG;
         // 过滤关键词
-        let sqlKeyWords = _buildSqlKeyWords(keywords, excludedKeywords);
+        let sqlKeyWords = _buildSqlKeyWords(options.match(/e/));
         // 过滤块类型
         let sqlTypeRlike = _buildSqlTypeRlike(options);
+        // 以文档维度,过滤关键词
+        let sqlGroupByFile = _buildSqlGroupByFile();
         // 自定义文档路径
         let sqlCustomPath = _buildSqlCustomPath();
         // 限制文档路径
@@ -681,7 +704,7 @@ function search_translator(arg) {
         // 搜索结果排序方式
         let sqlOrderBy = _buildOrderByQuery(options);
 
-        return `-s${sqlPrefix} and ${sqlKeyWords} and ${sqlTypeRlike} and ${sqlCustomPath} and ${sqlCurrentDoc} ${sqlOrderBy}`;
+        return `-s${sqlPrefix} and ${sqlKeyWords} and ${sqlTypeRlike} and ${sqlGroupByFile} and ${sqlCustomPath} and ${sqlCurrentDoc} ${sqlOrderBy}`;
     }
 
     // 区分场景 构造搜索语句
@@ -695,10 +718,6 @@ function search_translator(arg) {
                 // 只有排除词, 使用思源提供的查询语法
                 mylog('type: 查询语法');
                 return _buildExcludeQuery(keywords, excludedKeywords);
-            }
-            if (options.match(/e/) != null) {
-                mylog('type: 扩展搜索');
-                return _buildExtendedSearchQuery(keywords, excludedKeywords);
             }
         }
         mylog('type: sql语句');
@@ -1298,7 +1317,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             <td colspan="4">${this.code("-")}"+要排除的关键词，排除指定关键词</td></tr>
         </tr>
         <tr>
-            <td colspan="4">${this.code("-e")}":扩展搜索, 搜索出同时包含的文档</td>
+            <td colspan="4">${this.code("-e")}":文档模式, 以文档为单位进行搜索</td>
         </tr>
         </tbody></table>
         </div>`
@@ -1701,31 +1720,25 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.get_ele("#searchSyntaxCheck>svg>use")?.setAttribute('xlink:href', method_map[res.type].icon);
         // 搜索内容
         query_arg.query = res.val;
-        // 如果是 -e 扩展搜索, 就按照文档分组
-        if (res.val.match(/'\^\[libs\]\$'/)) {
-            query_arg.group = 1;
-        }
     }
 
     get_analysis_result_html(help) {
-        const handle_arr = function(arr, def) {
+        const handle_arr = function(arr, def, sep=',') {
             if (!arr.length) return def;
-            return `(${arr.join('),(')})`;
-            // arr.forEach(key => res += `(${key}),`);
+            // return `(${arr.join(`)${sep}(`)})`;
+            return `<span class="fn__code">${arr.join(`</span>${sep}<span class="fn__code">`)}</span>`;
         }
         const typeMap = {
             "-w": "关键字搜索",
             "-q": "查询语法",
             "-s": "sql语句",
             "-r": "正则表达式",
-            "-e": "扩展搜索",
         }
         const type = typeMap[help.type] ? `${this.code(help.type)}${typeMap[help.type]}` : "识别错误"
-        let keywords = handle_arr(help.keywords, '未识别');
-        let excluded = handle_arr(help.excluded, '空');
-        let path = "全部";
-        if (help.path && help.custom_path.length) {
-            path = `[${help.path}] and [(${help.custom_path.join(')and(')})]`;
+        let group_file = help.group_file ? `(文档模式)` : "";
+        let separator = help.group_file ? `|` : "&";
+        let keywords = handle_arr(help.keywords, '未识别', separator);
+        let excluded = handle_arr(help.excluded, '空', '&');
         }
         else if (help.path) {
             path = help.path;
@@ -1741,7 +1754,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         return `
         <span style="font-size: 16px; font-weight:bold">简搜: 解析结果 </span><span> (温馨提示: 拖动方框右下角可以调整显示区域)</span>
         <table id="simpleSearchAnalysisResTable"><tbody>
-        <tr><td>搜索方式:</td><td colspan="3">${type}</td></tr>
+        <tr><td>搜索方式:</td><td colspan="3">${type}${group_file}</td></tr>
         <tr><td>搜索内容:</td><td>${keywords}</td><td colspan="2">排除内容: ${excluded}</td></tr>
         <tr><td>类型过滤:</td><td colspan="3">${block_type}</td></tr>
         <tr><td>路径过滤:</td><td colspan="3">${path}</td></tr>
