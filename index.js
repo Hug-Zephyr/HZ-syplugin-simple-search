@@ -1755,6 +1755,17 @@ class SimpleSearchHZ extends siyuan.Plugin {
     // 替换原始搜索参数
     replace_src_search(query_arg) {
         if(!query_arg) return;
+        // 上次是指定的分组/排序, 这次先恢复
+        if (this.last_sort != -1) {
+            query_arg.sort = this.last_sort;
+            this.last_sort = -1;
+        }
+        if (this.last_group != -1) {
+            query_arg.group = this.last_group;
+            this.last_group = -1;
+        }
+        const last_sort = query_arg.sort;
+        const last_group = query_arg.group;
         const method_map = {
             "-w": {id:0, aria:"搜索方式: 关键字", icon:"#iconExact"},
             "-q": {id:1, aria:"搜索方式: 查询语法", icon:"#iconQuote"},
@@ -1772,6 +1783,15 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.get_ele("#searchSyntaxCheck>svg>use")?.setAttribute('xlink:href', method_map[res.type].icon);
         // 搜索内容
         query_arg.query = res.val;
+
+        // 如果指定了分组/排序方式, 就得记录下指定前的
+        // 等到下次进来的时候, 再恢复
+        if (last_sort != query_arg.sort) {
+            this.last_sort = last_sort;
+        }
+        if (last_group != query_arg.group) {
+            this.last_group = last_group;
+        }
     }
 
     get_analysis_result_html(help) {
@@ -2165,6 +2185,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.css          = null;
         this.page         = null;  // 搜索框所在的页面, 所有搜索都在此元素下搜索, 用于隔离 搜索页签和搜索弹窗
         this.is_searching = false; // 是否正在搜索
+        this.last_sort    = -1;    // 页面原始的排序方式
+        this.last_group   = -1;    // 页面原始的分组方式
 
         this.query        = {type:"", val:"", keywords:[], help:{}}; // 解析后的内容 {type: 搜索类型, val: 搜索内容, keywords: 关键词}
         this.g_setting    = {
