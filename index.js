@@ -2128,7 +2128,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         ));
         setTimeout(() => {
             // 创建 createTreeWalker 迭代器，用于遍历文本节点，保存到一个数组
-            const tree_walker = document.createTreeWalker(search_preview.children[1].children[0], NodeFilter.SHOW_TEXT);
+            const tree_walker = document.createTreeWalker(search_preview.children[1], NodeFilter.SHOW_TEXT);
             const search_preview_text_nodes = [];
             let current_node = tree_walker.nextNode();
             while (current_node) {
