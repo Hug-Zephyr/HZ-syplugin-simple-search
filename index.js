@@ -270,6 +270,7 @@ function search_translator(arg) {
     let   custom_path      = []; // 解析出来的自定义的搜索路径
     let   excludedPath     = []; // 解析出来的排除的搜索路径
     let   custom_path_all  = 0;  // 是否忽略页面的路径
+    let   custom_time      = []; // 解析出来的过滤的时间
     let   custom_sort      = []; // 解析出来的自定义的排序方式
     let   custom_group     = -1; // 解析出来的自定义的分组方式
 
@@ -283,6 +284,7 @@ function search_translator(arg) {
         path        : arg.hPath,
         custom_path : [],
         excludedPath: [],
+        custom_time : [],
         sort        : "默认",
     }
 
@@ -311,6 +313,26 @@ function search_translator(arg) {
             help.sort = _getSortHelpPrefix() + sortHelpMap[arg.sort];
         }
         return {type, val, keywords, help};
+    }
+    const _parse_time = function(str) {
+        if (!str.match(/^[cu]t[>=<][0-9]{1,14}([&|][cu]t[>=<][0-9]{1,14})*$/g)) return false;
+        let time_sql = str.replace(/&/g, ' and ').replace(/\|/g, ' or ')
+            .replace(/ct/g, 'created').replace(/ut/g, 'updated')
+            .replace(/([<>])(\d+)/g, (t, p1, p2) => `${p1}'${p2.padEnd(14, '0')}'`)
+            .replace(/=(\d+)/g, " like '$1%'");
+        custom_time.push(time_sql);
+        let time_help = str.replace(/&/g, ' & ').replace(/\|/g, ' or ')
+            .replace(/ct/g, '(创建时间').replace(/ut/g, '(更新时间')
+            .replace(/([<>])(\d+)/g, (t, p1, p2) => {
+                p2 = p2.padEnd(14, '0');
+                return `${p1}${p2.slice(0, 4)}/${p2.slice(4, 6)}/${p2.slice(6, 8)} ${p2.slice(8, 10)}:${p2.slice(10, 12)}:${p2.slice(12, 14)})`;
+            })
+            .replace(/=(\d+)/g, (t, p1) => {
+                p1 = p1.padEnd(14, '*');
+                return `=${p1.slice(0, 4)}/${p1.slice(4, 6)}/${p1.slice(6, 8)} ${p1.slice(8, 10)}:${p1.slice(10, 12)}:${p1.slice(12, 14)})`;
+            });
+        help.custom_time.push(time_help);
+        return true;
     }
     const _parse_sort = function(str) {
         if (str.at(-1) != '>' && str.at(-1) != '<') return false;
@@ -373,6 +395,8 @@ function search_translator(arg) {
                 options += item.slice(1);
             } else if (item.startsWith('-/')) {
                 excludedPath.push(item.slice(1));
+            } else if (_parse_time(item)) {
+                continue;
             } else if (item.startsWith('-')) {
                 excludedKeywords.push(item.slice(1));
             } else if (item.startsWith('/')) {
@@ -522,6 +546,14 @@ function search_translator(arg) {
             }
         }
         return sqlGroupByFile ? `(${sqlGroupByFile.slice(4)})` : "true";
+    }
+    // [拼接sql] 过滤时间
+    const _buildSqlFilterTime = function() {
+        let sqlFilterTime = ""
+        custom_time.forEach(time => {
+            sqlFilterTime += ` and (${time})`
+        })
+        return sqlFilterTime ? `(${sqlFilterTime.slice(5)})` : "true";
     }
     // [拼接sql] 自定义路径
     const _buildSqlCustomPath = function() {
@@ -707,6 +739,8 @@ function search_translator(arg) {
         let sqlTypeRlike = _buildSqlTypeRlike(options);
         // 以文档维度,过滤关键词
         let sqlGroupByFile = _buildSqlGroupByFile();
+        // 过滤时间
+        let sqlFilterTime = _buildSqlFilterTime();
         // 自定义文档路径
         let sqlCustomPath = _buildSqlCustomPath();
         // 限制文档路径
@@ -714,24 +748,27 @@ function search_translator(arg) {
         // 搜索结果排序方式
         let sqlOrderBy = _buildOrderByQuery(options);
 
-        return `-s${sqlPrefix} and ${sqlKeyWords} and ${sqlTypeRlike} and ${sqlGroupByFile} and ${sqlCustomPath} and ${sqlCurrentDoc} ${sqlOrderBy}`;
+        return `-s${sqlPrefix} and ${sqlKeyWords} and ${sqlTypeRlike} and ${sqlGroupByFile} and ${sqlFilterTime} and ${sqlCustomPath} and ${sqlCurrentDoc} ${sqlOrderBy}`;
     }
 
     // 区分场景 构造搜索语句
     const _buildQuery = function() {
-        if (!custom_path.length && !custom_sort.length && custom_group == -1) {
-            if (!options.length && !excludedKeywords.length) {
-                // 没有选项, 排除词, 自定义路径, 就是用原样输入
-                mylog('type: 关键词');
-                return "-w" + input;
-            } else if (!options.length && excludedKeywords.length) {
-                // 只有排除词, 使用思源提供的查询语法
-                mylog('type: 查询语法');
-                return _buildExcludeQuery(keywords, excludedKeywords);
-            }
+        if (options.length || custom_path.length || excludedPath.length ||
+            custom_time.length || custom_sort.length || custom_group != -1) {
+            // 指定选项/路径/时间/排序/分组
+            mylog('type: sql语句');
+            return _buildSqlSearchQuery(options, keywords, excludedKeywords, pageSearchPath);
         }
-        mylog('type: sql语句');
-        return _buildSqlSearchQuery(options, keywords, excludedKeywords, pageSearchPath);
+        else if (excludedKeywords.length) {
+            // 只有排除词, 使用思源提供的查询语法
+            mylog('type: 查询语法');
+            return _buildExcludeQuery(keywords, excludedKeywords);
+        }
+        else {
+            // 没有选项, 排除词, 自定义路径, 就是用原样输入
+            mylog('type: 关键词');
+            return "-w" + input;
+        }
     }
 
     //-------------------------- 主流程
@@ -1307,6 +1344,15 @@ class SimpleSearchHZ extends siyuan.Plugin {
             <td colspan="2">${this.code("-K")}:大写k, 在当前文档及子文档搜索</td>
         </tr>
         <tr>
+            <td colspan="1" rowspan="2">${this.strong(" 时间过滤: ")}</td>
+            <td colspan="2">${this.code("ct<2025")}/${this.code("ut<2025")}:查询2025年之前创建/更新的内容</td>
+            <td colspan="2">${this.code("ct=20251001123456")}/${this.code("ut=20251001123456")}:查询2025年10月1号12:34:56创建/更新的内容</td>
+        </tr>
+        <tr>
+            <td colspan="2">${this.code("ct>2025")}/${this.code("ut>2025")}:查询2025年之后创建/更新的内容</td>
+            <td colspan="2">${this.code("ct>2025&ct<2027|ut=2024")}:查询2025-2027年期间创建 或 2024年更新的内容</td>
+        </tr>
+        <tr>
             <td colspan="1">${this.strong(" 分组: ")}</td>
             <td colspan="2">${this.code("g<")}/${this.code("g>")}:按照文档分组</td>
             <td colspan="2">${this.code("nog<")}/${this.code("nog>")}:不按文档分组</td>
@@ -1749,6 +1795,9 @@ class SimpleSearchHZ extends siyuan.Plugin {
         let separator = help.group_file ? `|` : "&";
         let keywords = handle_arr(help.keywords, '未识别', separator);
         let excluded = handle_arr(help.excluded, '空', '&');
+        let custom_time = "全部";
+        if (help.custom_time.length) {
+            custom_time = ` [${help.custom_time.join('] and [')}]`
         }
         let custom_path = "";
         if (help.path) {
@@ -1771,7 +1820,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         <tr><td>搜索内容:</td><td>${keywords}</td><td colspan="2">排除内容: ${excluded}</td></tr>
         <tr><td>类型过滤:</td><td colspan="3">${block_type}</td></tr>
         <tr><td>路径过滤:</td><td colspan="3">${custom_path}</td></tr>
-        <tr><td>路径过滤:</td><td colspan="3">${path}</td></tr>
+        <tr><td>时间过滤:</td><td colspan="3">${custom_time}</td></tr>
         <tr><td>排序方式:</td><td colspan="3">${help.sort}</td></tr>
         <tr><td style="min-width:70px;">转换结果:</td><td colspan="3">${this.code(help.ret_str)}</td></tr>
         </tbody></table>`
