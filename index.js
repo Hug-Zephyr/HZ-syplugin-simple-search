@@ -2076,6 +2076,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         mylog('加载成功, 开始高亮', data);
         const query = this.query;
         if (!query) return;
+        // 加载完毕的页面不在当前页面, 直接退出
+        if (!this.page?.contains(data.detail.protyle.element)) return;
         // 暂时只处理sql语句的高亮
         if (query.type != '-s') return;
 
@@ -2098,24 +2100,31 @@ class SimpleSearchHZ extends siyuan.Plugin {
         CSS.highlights.set("highlight-keywords-search-list", searchResultsHighlight); // 注册合并的高亮
 
         // 高亮 点击搜索结果文档预览里面的
-        // 创建 createTreeWalker 迭代器，用于遍历文本节点，保存到一个数组
         const search_preview = this.get_ele('#searchPreview')
-        const tree_walker = document.createTreeWalker(search_preview.children[1].children[0], NodeFilter.SHOW_TEXT);
-        const search_preview_text_nodes = [];
-        let current_node = tree_walker.nextNode();
-        while (current_node) {
-            if (current_node.textContent.trim().length > 1) {
-                search_preview_text_nodes.push(current_node);
+        // 获取代码块里面是否有关键词, 为了之后是否延时高亮
+        let has_hljs = Array.from(search_preview.querySelectorAll('.hljs>div[spellcheck]'))
+        .some(ele => query.keywords.some(
+            keyword => ele.innerText.includes(keyword)
+        ));
+        setTimeout(() => {
+            // 创建 createTreeWalker 迭代器，用于遍历文本节点，保存到一个数组
+            const tree_walker = document.createTreeWalker(search_preview.children[1].children[0], NodeFilter.SHOW_TEXT);
+            const search_preview_text_nodes = [];
+            let current_node = tree_walker.nextNode();
+            while (current_node) {
+                if (current_node.textContent.trim().length > 1) {
+                    search_preview_text_nodes.push(current_node);
+                }
+                current_node = tree_walker.nextNode();
             }
-            current_node = tree_walker.nextNode();
-        }
-        const previewRanges = [];
-        query.keywords.forEach((keyword) => {
-            const ranges = this.highlightKeywords(search_preview_text_nodes, keyword); // 收集搜索预览的高亮范围
-            previewRanges.push(...ranges);
-        });
-        const searchPreviewHighlight = new Highlight(...previewRanges.flat());
-        CSS.highlights.set("highlight-keywords-search-preview", searchPreviewHighlight); // 注册搜索预览的高亮
+            const previewRanges = [];
+            query.keywords.forEach((keyword) => {
+                const ranges = this.highlightKeywords(search_preview_text_nodes, keyword); // 收集搜索预览的高亮范围
+                previewRanges.push(...ranges);
+            });
+            const searchPreviewHighlight = new Highlight(...previewRanges.flat());
+            CSS.highlights.set("highlight-keywords-search-preview", searchPreviewHighlight)
+        }, has_hljs ? 300: 0);
     }
 
     sy_event_uninit() {
