@@ -268,20 +268,22 @@ function search_translator(arg) {
     let   keywords         = []; // 解析出来的搜索关键词
     const excludedKeywords = []; // 解析出来的排除的关键词
     let   custom_path      = []; // 解析出来的自定义的搜索路径
+    let   excludedPath     = []; // 解析出来的排除的搜索路径
     let   custom_path_all  = 0;  // 是否忽略页面的路径
     let   custom_sort      = []; // 解析出来的自定义的排序方式
     let   custom_group     = -1; // 解析出来的自定义的分组方式
 
     const help             = {   // 帮助信息存储
-        ret_str    : "",
-        type       : "",
-        group_file : false,
-        keywords   : [],
-        excluded   : [],
-        block_type : {},
-        path       : arg.hPath,
-        custom_path: [],
-        sort       : "默认",
+        ret_str     : "",
+        type        : "",
+        group_file  : false,
+        keywords    : [],
+        excluded    : [],
+        block_type  : {},
+        path        : arg.hPath,
+        custom_path : [],
+        excludedPath: [],
+        sort        : "默认",
     }
 
     const _handle_ret = function(ret) {
@@ -369,6 +371,8 @@ function search_translator(arg) {
                 continue;
             } else if (item.match(/^-([kKedlptbsicmoOL]|h[1-6]*)+$/)) {
                 options += item.slice(1);
+            } else if (item.startsWith('-/')) {
+                excludedPath.push(item.slice(1));
             } else if (item.startsWith('-')) {
                 excludedKeywords.push(item.slice(1));
             } else if (item.startsWith('/')) {
@@ -522,7 +526,7 @@ function search_translator(arg) {
     // [拼接sql] 自定义路径
     const _buildSqlCustomPath = function() {
         let sqlCustomPath = "";
-        if (!custom_path.length) return "true";
+        if (!custom_path.length && !excludedPath.length) return "true";
         // 指定搜索路径名称
         // 1. 只有搜索路径 /笔记本1/文档1
         // 2. 指定搜索路径 加其他 /笔记本1 -h 序列号
@@ -553,6 +557,12 @@ function search_translator(arg) {
                 sql_once += ` or (box in ("${book_arr.join('","')}")${path_sql}${file_sql})`
             }
             sqlCustomPath += ` and (${sql_once})`;
+        });
+        excludedPath.forEach((path) => {
+            const path_arr = path.split('/').filter(part => part !== '');
+            if (path_arr.length == 0) return;
+            help.excludedPath.push(`*${path_arr.join('*/*')}*`);
+            sqlCustomPath += ` and (hpath not like '%${path_arr.join('%')}%')`;
         });
 
         return sqlCustomPath ? `(${sqlCustomPath.slice(5)})` : "true";
@@ -1740,14 +1750,17 @@ class SimpleSearchHZ extends siyuan.Plugin {
         let keywords = handle_arr(help.keywords, '未识别', separator);
         let excluded = handle_arr(help.excluded, '空', '&');
         }
-        else if (help.path) {
-            path = help.path;
+        let custom_path = "";
+        if (help.path) {
+            help.custom_path.unshift(help.path);
         }
-        else if (help.custom_path.length) {
-            path = `(${help.custom_path.join(')or(')})`;
+        if (help.custom_path.length) {
+            custom_path += ` and [${help.custom_path.join('] and [')}]`
         }
-
-        help.custom_path.length ? `[${help.path}] and [(${help.custom_path.join(')or(')})]` : help.path;
+        if (help.excludedPath.length) {
+            custom_path += ` and ![${help.excludedPath.join('] and ![')}]`
+        }
+        custom_path = custom_path ? custom_path.slice(5) : "全部"
         let block_type = "";
         Object.entries(help.block_type).forEach(([key, val]) => block_type += `[${this.code('-'+key)}${val}],`);
         block_type = block_type ? block_type.slice(0, -1) : "未识别";
@@ -1757,6 +1770,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         <tr><td>搜索方式:</td><td colspan="3">${type}${group_file}</td></tr>
         <tr><td>搜索内容:</td><td>${keywords}</td><td colspan="2">排除内容: ${excluded}</td></tr>
         <tr><td>类型过滤:</td><td colspan="3">${block_type}</td></tr>
+        <tr><td>路径过滤:</td><td colspan="3">${custom_path}</td></tr>
         <tr><td>路径过滤:</td><td colspan="3">${path}</td></tr>
         <tr><td>排序方式:</td><td colspan="3">${help.sort}</td></tr>
         <tr><td style="min-width:70px;">转换结果:</td><td colspan="3">${this.code(help.ret_str)}</td></tr>
