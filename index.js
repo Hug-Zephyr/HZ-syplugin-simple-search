@@ -268,19 +268,24 @@ function search_translator(arg) {
     let   keywords         = []; // 解析出来的搜索关键词
     const excludedKeywords = []; // 解析出来的排除的关键词
     let   custom_path      = []; // 解析出来的自定义的搜索路径
+    let   excludedPath     = []; // 解析出来的排除的搜索路径
     let   custom_path_all  = 0;  // 是否忽略页面的路径
+    let   custom_time      = []; // 解析出来的过滤的时间
     let   custom_sort      = []; // 解析出来的自定义的排序方式
     let   custom_group     = -1; // 解析出来的自定义的分组方式
 
     const help             = {   // 帮助信息存储
-        ret_str    : "",
-        type       : "",
-        keywords   : [],
-        excluded   : [],
-        block_type : {},
-        path       : arg.hPath,
-        custom_path: [],
-        sort       : "默认",
+        ret_str     : "",
+        type        : "",
+        group_file  : false,
+        keywords    : [],
+        excluded    : [],
+        block_type  : {},
+        path        : arg.hPath,
+        custom_path : [],
+        excludedPath: [],
+        custom_time : [],
+        sort        : "默认",
     }
 
     const _handle_ret = function(ret) {
@@ -293,6 +298,7 @@ function search_translator(arg) {
         }
         help.ret_str  = ret;
         if (help.type.length == 0) help.type = type;
+        help.group_file = !!options.match(/e/);
         help.keywords = keywords;
         help.excluded = excludedKeywords;
         if (Object.keys(help.block_type).length == 0 && type != '-s') {
@@ -307,6 +313,26 @@ function search_translator(arg) {
             help.sort = _getSortHelpPrefix() + sortHelpMap[arg.sort];
         }
         return {type, val, keywords, help};
+    }
+    const _parse_time = function(str) {
+        if (!str.match(/^[cu]t[>=<][0-9]{1,14}([&|][cu]t[>=<][0-9]{1,14})*$/g)) return false;
+        let time_sql = str.replace(/&/g, ' and ').replace(/\|/g, ' or ')
+            .replace(/ct/g, 'created').replace(/ut/g, 'updated')
+            .replace(/([<>])(\d+)/g, (t, p1, p2) => `${p1}'${p2.padEnd(14, '0')}'`)
+            .replace(/=(\d+)/g, " like '$1%'");
+        custom_time.push(time_sql);
+        let time_help = str.replace(/&/g, ' & ').replace(/\|/g, ' or ')
+            .replace(/ct/g, '(创建时间').replace(/ut/g, '(更新时间')
+            .replace(/([<>])(\d+)/g, (t, p1, p2) => {
+                p2 = p2.padEnd(14, '0');
+                return `${p1}${p2.slice(0, 4)}/${p2.slice(4, 6)}/${p2.slice(6, 8)} ${p2.slice(8, 10)}:${p2.slice(10, 12)}:${p2.slice(12, 14)})`;
+            })
+            .replace(/=(\d+)/g, (t, p1) => {
+                p1 = p1.padEnd(14, '*');
+                return `=${p1.slice(0, 4)}/${p1.slice(4, 6)}/${p1.slice(6, 8)} ${p1.slice(8, 10)}:${p1.slice(10, 12)}:${p1.slice(12, 14)})`;
+            });
+        help.custom_time.push(time_help);
+        return true;
     }
     const _parse_sort = function(str) {
         if (str.at(-1) != '>' && str.at(-1) != '<') return false;
@@ -367,6 +393,10 @@ function search_translator(arg) {
                 continue;
             } else if (item.match(/^-([kKedlptbsicmoOL]|h[1-6]*)+$/)) {
                 options += item.slice(1);
+            } else if (item.startsWith('-/')) {
+                excludedPath.push(item.slice(1));
+            } else if (_parse_time(item)) {
+                continue;
             } else if (item.startsWith('-')) {
                 excludedKeywords.push(item.slice(1));
             } else if (item.startsWith('/')) {
@@ -393,38 +423,39 @@ function search_translator(arg) {
         }
         return querySyntax;
     }
-
-    // [构造搜索语句] 扩展搜索
-    const _buildExtendedSearchQuery = function() {
-        let sqlExtendedSearch = "select path from blocks where type ='d' ";
-        let sqlContentLike = "";
-        for (let word of keywords) {
-            sqlExtendedSearch += "and path in (select path from blocks where content like '%" + word + "%') ";
-            sqlContentLike += "or content like '%" + word + "%' ";
+    const _buildSqlKeyWordsOnce = function(word, is_exclude = false) {
+        if (is_exclude) {
+            return `(content not like '%${word}%' and name not like '%${word}%' and alias not like '%${word}%' and memo not like '%${word}%')`;
         }
-        for (let word of excludedKeywords) {
-            sqlExtendedSearch += "and path not in (select path from blocks where content like '%" + word + "%') ";
+        else {
+            return `(content like '%${word}%' or name like '%${word}%' or alias like '%${word}%' or memo like '%${word}%')`;
         }
-        help.type = '-e';
-        return "-s" + 'select * from blocks where ' + SYT.SQL_FLAG + ' and path in (' +
-            sqlExtendedSearch + ") and (" + sqlContentLike.slice(3) + ") and type not rlike '^[libs]$' " +
-            defaultOrderBy;
     }
 
     // [拼接sql] 过滤关键词
-    const _buildSqlKeyWords = function() {
+    const _buildSqlKeyWords = function(is_group_file) {
         let sqlKeyWords = "";
-
-        // 匹配关键词
-        for (let word of keywords) {
-            sqlKeyWords += `and (content like '%${word}%' or name like '%${word}%' or alias like '%${word}%' or memo like '%${word}%') `;
+        if (is_group_file) {
+            // 文档模式
+            for (let word of keywords) {
+                sqlKeyWords += ` or ${_buildSqlKeyWordsOnce(word)}`;
+            }
+            // 排除关键词, 文档模式不需要处理
+            return sqlKeyWords ? `(${sqlKeyWords.slice(4)})` : "true";
         }
-
-        // 排除关键词
-        for (let word of excludedKeywords) {
-            sqlKeyWords += `and content not like '%${word}%' and name not like '%${word}%' and alias not like '%${word}%' and memo not like '%${word}%' `;
+        else {
+            // 块模式
+            // 匹配关键词
+            for (let word of keywords) {
+                sqlKeyWords += ` and ${_buildSqlKeyWordsOnce(word)}`;
+            }
+    
+            // 排除关键词
+            for (let word of excludedKeywords) {
+                sqlKeyWords += ` and ${_buildSqlKeyWordsOnce(word, true)}`;
+            }
+            return sqlKeyWords ? `(${sqlKeyWords.slice(5)})` : "true";
         }
-        return sqlKeyWords ? `(${sqlKeyWords.slice(4)})` : "true";
     }
 
     // [拼接sql] 过滤块类型
@@ -441,7 +472,7 @@ function search_translator(arg) {
             "[dlptbsicm]": (types) => {
                 const basic_type = types.replace(/[^dlptbsicm]/g, "");
                 Array.from(basic_type).forEach((type_once) => help.block_type[type_once] = blockHelpMap[type_once]);
-                return `type rlike '^[${basic_type}]$' `
+                return `type rlike '^[${basic_type}]$'`
             },
             // 搜索子标题的sql语句
             "h[1-6]*": (types) => {
@@ -454,7 +485,7 @@ function search_translator(arg) {
                 }
                 else {
                     help.block_type[types] = `${[...new Set(subType.split(''))].join(',')}级标题`;
-                    return `(${headType} and subtype rlike '^h[${subType}]$') `;
+                    return `(${headType} and subtype rlike '^h[${subType}]$')`;
                 }
             },
             // 搜索待办的sql语句
@@ -469,18 +500,18 @@ function search_translator(arg) {
                     if(todoCondition) todoCondition += ' or ';
                     todoCondition += "markdown like '%[x] %'";
                 }
-                return `(subtype like 't' and type not like 'l' and (${todoCondition})) `;
+                return `(subtype like 't' and type not like 'l' and (${todoCondition}))`;
             },
             // 搜索带链接的块的sql语句
             "[L]": () => {
                 help.block_type['L'] = "表示带有链接的块";
-                return `(type rlike '^[htp]$' and markdown like '%[%](%)%') `
+                return `(type rlike '^[htp]$' and markdown like '%[%](%)%')`
             },
         };
         // 解析选项, 拼接sql语句
         for (let key in typeHandlers) {
             if (sqlTypes.match(key)) {
-                if (sqlTypeRlike !== "") sqlTypeRlike += "or ";
+                if (sqlTypeRlike !== "") sqlTypeRlike += " or ";
                 sqlTypeRlike += typeHandlers[key](sqlTypes);
             }
         }
@@ -494,14 +525,40 @@ function search_translator(arg) {
                     help.block_type[blockTypeMapping[key]] = blockHelpMap[blockTypeMapping[key]];
                 }
             }
-            sqlTypeRlike = `type rlike '^[${types}]$' `;
+            sqlTypeRlike = `type rlike '^[${types}]$'`;
         }
         return sqlTypeRlike ? `(${sqlTypeRlike})` : "true";
+    }
+    // [拼接sql] 以文档维度,过滤关键词
+    const _buildSqlGroupByFile = function() {
+        let sqlGroupByFile = "";
+        if (options.match(/e/)) {
+            // 文档模式才处理
+            // 暂时先不处理块类型
+            // let sqlTypeRlike = 'and ' + _buildSqlTypeRlike(options);
+            // if (sqlTypeRlike == 'and true') sqlTypeRlike = '';
+            for (let word of keywords) {
+                sqlGroupByFile += ` and root_id in (select root_id from blocks where ${_buildSqlKeyWordsOnce(word)})`;
+            }
+            // 排除关键词
+            for (let word of excludedKeywords) {
+                sqlGroupByFile += ` and root_id not in (select root_id from blocks where ${_buildSqlKeyWordsOnce(word)})`;
+            }
+        }
+        return sqlGroupByFile ? `(${sqlGroupByFile.slice(5)})` : "true";
+    }
+    // [拼接sql] 过滤时间
+    const _buildSqlFilterTime = function() {
+        let sqlFilterTime = ""
+        custom_time.forEach(time => {
+            sqlFilterTime += ` and (${time})`
+        })
+        return sqlFilterTime ? `(${sqlFilterTime.slice(5)})` : "true";
     }
     // [拼接sql] 自定义路径
     const _buildSqlCustomPath = function() {
         let sqlCustomPath = "";
-        if (!custom_path.length) return "true";
+        if (!custom_path.length && !excludedPath.length) return "true";
         // 指定搜索路径名称
         // 1. 只有搜索路径 /笔记本1/文档1
         // 2. 指定搜索路径 加其他 /笔记本1 -h 序列号
@@ -533,6 +590,12 @@ function search_translator(arg) {
             }
             sqlCustomPath += ` and (${sql_once})`;
         });
+        excludedPath.forEach((path) => {
+            const path_arr = path.split('/').filter(part => part !== '');
+            if (path_arr.length == 0) return;
+            help.excludedPath.push(`*${path_arr.join('*/*')}*`);
+            sqlCustomPath += ` and (hpath not like '%${path_arr.join('%')}%')`;
+        });
 
         return sqlCustomPath ? `(${sqlCustomPath.slice(5)})` : "true";
     }
@@ -558,16 +621,15 @@ function search_translator(arg) {
                 const idx = path.indexOf('/');
                 if (idx === -1) {
                     boxPath = path;
-                    filterPath += `(box="${boxPath}")`;
+                    filterPath += ` or (box="${boxPath}")`;
                 } else {
                     boxPath = path.slice(0, idx);
                     filePath = path.slice(idx);
-                    filterPath += `(box="${boxPath}" and path like '${filePath}%')`;
+                    filterPath += ` or (box="${boxPath}" and path like '${filePath}%')`;
                 }
-                filterPath += " or ";
             };
             if (filterPath.length) {
-                sqlCurrentDoc = `${filterPath.slice(0, -3)}`;
+                sqlCurrentDoc = `${filterPath.slice(4)}`;
             }
         }
         return sqlCurrentDoc ? `(${sqlCurrentDoc})` : "true";
@@ -625,9 +687,6 @@ function search_translator(arg) {
         if (arg.group) {
             // 按照文档分组, 只支持指定的第一个方式或页面
             sqlOrderBy = defaultOrderBy;
-            if (custom_sort.length) {
-                arg.sort = custom_sort.length ? custom_sort[0] : arg.sort;
-            }
             arg.sort = custom_sort.length ? custom_sort[0] : arg.sort;
             switch(arg.sort) {
             case TYPE_SORT:
@@ -671,9 +730,13 @@ function search_translator(arg) {
     const _buildSqlSearchQuery = function() {
         let sqlPrefix = 'select * from blocks where ' + SYT.SQL_FLAG;
         // 过滤关键词
-        let sqlKeyWords = _buildSqlKeyWords(keywords, excludedKeywords);
+        let sqlKeyWords = _buildSqlKeyWords(options.match(/e/));
         // 过滤块类型
         let sqlTypeRlike = _buildSqlTypeRlike(options);
+        // 以文档维度,过滤关键词
+        let sqlGroupByFile = _buildSqlGroupByFile();
+        // 过滤时间
+        let sqlFilterTime = _buildSqlFilterTime();
         // 自定义文档路径
         let sqlCustomPath = _buildSqlCustomPath();
         // 限制文档路径
@@ -681,28 +744,27 @@ function search_translator(arg) {
         // 搜索结果排序方式
         let sqlOrderBy = _buildOrderByQuery(options);
 
-        return `-s${sqlPrefix} and ${sqlKeyWords} and ${sqlTypeRlike} and ${sqlCustomPath} and ${sqlCurrentDoc} ${sqlOrderBy}`;
+        return `-s${sqlPrefix} and ${sqlKeyWords} and ${sqlTypeRlike} and ${sqlGroupByFile} and ${sqlFilterTime} and ${sqlCustomPath} and ${sqlCurrentDoc} ${sqlOrderBy}`;
     }
 
     // 区分场景 构造搜索语句
     const _buildQuery = function() {
-        if (!custom_path.length && !custom_sort.length && custom_group == -1) {
-            if (!options.length && !excludedKeywords.length) {
-                // 没有选项, 排除词, 自定义路径, 就是用原样输入
-                mylog('type: 关键词');
-                return "-w" + input;
-            } else if (!options.length && excludedKeywords.length) {
-                // 只有排除词, 使用思源提供的查询语法
-                mylog('type: 查询语法');
-                return _buildExcludeQuery(keywords, excludedKeywords);
-            }
-            if (options.match(/e/) != null) {
-                mylog('type: 扩展搜索');
-                return _buildExtendedSearchQuery(keywords, excludedKeywords);
-            }
+        if (options.length || custom_path.length || excludedPath.length ||
+            custom_time.length || custom_sort.length || custom_group != -1) {
+            // 指定选项/路径/时间/排序/分组
+            mylog('type: sql语句');
+            return _buildSqlSearchQuery(options, keywords, excludedKeywords, pageSearchPath);
         }
-        mylog('type: sql语句');
-        return _buildSqlSearchQuery(options, keywords, excludedKeywords, pageSearchPath);
+        else if (excludedKeywords.length) {
+            // 只有排除词, 使用思源提供的查询语法
+            mylog('type: 查询语法');
+            return _buildExcludeQuery(keywords, excludedKeywords);
+        }
+        else {
+            // 没有选项, 排除词, 自定义路径, 就是用原样输入
+            mylog('type: 关键词');
+            return "-w" + input;
+        }
     }
 
     //-------------------------- 主流程
@@ -1278,12 +1340,20 @@ class SimpleSearchHZ extends siyuan.Plugin {
             <td colspan="2">${this.code("-K")}:大写k, 在当前文档及子文档搜索</td>
         </tr>
         <tr>
-            <td colspan="1">${this.strong(" 分组: ")}</td>
+            <td colspan="1" rowspan="2">${this.strong(" 时间过滤: ")}</td>
+            <td colspan="2">${this.code("ct<2025")}/${this.code("ut<2025")}:查询2025年之前创建/更新的内容</td>
+            <td colspan="2">${this.code("ct=20251001123456")}/${this.code("ut=20251001123456")}:查询2025年10月1号12:34:56创建/更新的内容</td>
+        </tr>
+        <tr>
+            <td colspan="2">${this.code("ct>2025")}/${this.code("ut>2025")}:查询2025年之后创建/更新的内容</td>
+            <td colspan="2">${this.code("ct>2025&ct<2027|ut=2024")}:查询2025-2027年期间创建 或 2024年更新的内容</td>
+        </tr>
+        <tr>
+            <td colspan="1" rowspan="3">${this.strong(" 分组&排序: ")}</td>
             <td colspan="2">${this.code("g<")}/${this.code("g>")}:按照文档分组</td>
             <td colspan="2">${this.code("nog<")}/${this.code("nog>")}:不按文档分组</td>
         </tr>
         <tr>
-            <td colspan="1" rowspan="2">${this.strong(" 排序: ")}</td>
             <td colspan="2">${this.code("type<")}/${this.code("type>")}:按照类型排序</td>
             <td colspan="2">${this.code("cont<")}/${this.code("cont>")}:原文内容顺序</td>
         </tr>
@@ -1298,7 +1368,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             <td colspan="4">${this.code("-")}"+要排除的关键词，排除指定关键词</td></tr>
         </tr>
         <tr>
-            <td colspan="4">${this.code("-e")}":扩展搜索, 搜索出同时包含的文档</td>
+            <td colspan="4">${this.code("-e")}":文档模式, 在符合条件的文档下进行搜索</td>
         </tr>
         </tbody></table>
         </div>`
@@ -1684,6 +1754,17 @@ class SimpleSearchHZ extends siyuan.Plugin {
     // 替换原始搜索参数
     replace_src_search(query_arg) {
         if(!query_arg) return;
+        // 上次是指定的分组/排序, 这次先恢复
+        if (this.last_sort != -1) {
+            query_arg.sort = this.last_sort;
+            this.last_sort = -1;
+        }
+        if (this.last_group != -1) {
+            query_arg.group = this.last_group;
+            this.last_group = -1;
+        }
+        const last_sort = query_arg.sort;
+        const last_group = query_arg.group;
         const method_map = {
             "-w": {id:0, aria:"搜索方式: 关键字", icon:"#iconExact"},
             "-q": {id:1, aria:"搜索方式: 查询语法", icon:"#iconQuote"},
@@ -1701,50 +1782,60 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.get_ele("#searchSyntaxCheck>svg>use")?.setAttribute('xlink:href', method_map[res.type].icon);
         // 搜索内容
         query_arg.query = res.val;
-        // 如果是 -e 扩展搜索, 就按照文档分组
-        if (res.val.match(/'\^\[libs\]\$'/)) {
-            query_arg.group = 1;
+
+        // 如果指定了分组/排序方式, 就得记录下指定前的
+        // 等到下次进来的时候, 再恢复
+        if (last_sort != query_arg.sort) {
+            this.last_sort = last_sort;
+        }
+        if (last_group != query_arg.group) {
+            this.last_group = last_group;
         }
     }
 
     get_analysis_result_html(help) {
-        const handle_arr = function(arr, def) {
+        const handle_arr = function(arr, def, sep=',') {
             if (!arr.length) return def;
-            return `(${arr.join('),(')})`;
-            // arr.forEach(key => res += `(${key}),`);
+            // return `(${arr.join(`)${sep}(`)})`;
+            return `<span class="fn__code">${arr.join(`</span>${sep}<span class="fn__code">`)}</span>`;
         }
         const typeMap = {
             "-w": "关键字搜索",
             "-q": "查询语法",
             "-s": "sql语句",
             "-r": "正则表达式",
-            "-e": "扩展搜索",
         }
         const type = typeMap[help.type] ? `${this.code(help.type)}${typeMap[help.type]}` : "识别错误"
-        let keywords = handle_arr(help.keywords, '未识别');
-        let excluded = handle_arr(help.excluded, '空');
-        let path = "全部";
-        if (help.path && help.custom_path.length) {
-            path = `[${help.path}] and [(${help.custom_path.join(')and(')})]`;
+        let group_file = help.group_file ? `(文档模式, 在符合条件的文档下进行搜索)` : "";
+        let separator = help.group_file ? `|` : "&";
+        let keywords = handle_arr(help.keywords, '未识别', separator);
+        let excluded = handle_arr(help.excluded, '空', '&');
+        let custom_time = "全部";
+        if (help.custom_time.length) {
+            custom_time = ` [${help.custom_time.join('] and [')}]`
         }
-        else if (help.path) {
-            path = help.path;
+        let custom_path = "";
+        if (help.path) {
+            help.custom_path.unshift(help.path);
         }
-        else if (help.custom_path.length) {
-            path = `(${help.custom_path.join(')or(')})`;
+        if (help.custom_path.length) {
+            custom_path += ` and [${help.custom_path.join('] and [')}]`
         }
-
-        help.custom_path.length ? `[${help.path}] and [(${help.custom_path.join(')or(')})]` : help.path;
+        if (help.excludedPath.length) {
+            custom_path += ` and ![${help.excludedPath.join('] and ![')}]`
+        }
+        custom_path = custom_path ? custom_path.slice(5) : "全部"
         let block_type = "";
         Object.entries(help.block_type).forEach(([key, val]) => block_type += `[${this.code('-'+key)}${val}],`);
         block_type = block_type ? block_type.slice(0, -1) : "未识别";
         return `
         <span style="font-size: 16px; font-weight:bold">简搜: 解析结果 </span><span> (温馨提示: 拖动方框右下角可以调整显示区域)</span>
         <table id="simpleSearchAnalysisResTable"><tbody>
-        <tr><td>搜索方式:</td><td colspan="3">${type}</td></tr>
+        <tr><td>搜索方式:</td><td colspan="3">${type}${group_file}</td></tr>
         <tr><td>搜索内容:</td><td>${keywords}</td><td colspan="2">排除内容: ${excluded}</td></tr>
         <tr><td>类型过滤:</td><td colspan="3">${block_type}</td></tr>
-        <tr><td>路径过滤:</td><td colspan="3">${path}</td></tr>
+        <tr><td>路径过滤:</td><td colspan="3">${custom_path}</td></tr>
+        <tr><td>时间过滤:</td><td colspan="3">${custom_time}</td></tr>
         <tr><td>排序方式:</td><td colspan="3">${help.sort}</td></tr>
         <tr><td style="min-width:70px;">转换结果:</td><td colspan="3">${this.code(help.ret_str)}</td></tr>
         </tbody></table>`
@@ -1973,7 +2064,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.search_completed_callback();
     }
 
-    highlightKeywords(search_list_text_nodes, keyword, highlight_type) {
+    highlightKeywords(search_list_text_nodes, keyword) {
         const str = keyword.trim().toLowerCase();
         const ranges = search_list_text_nodes // 查找所有文本节点是否包含搜索词
             .filter(el => {
@@ -1997,14 +2088,15 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     return range;
                 });
             });
-        const searchResultsHighlight = new Highlight(...ranges.flat()); // 创建高亮对象
-        CSS.highlights.set(highlight_type, searchResultsHighlight);     // 注册高亮
+        return ranges;
     }
     // 在界面加载完毕后高亮关键词
-    loadedProtyleStaticEvent(data=null, ) {
+    loadedProtyleStaticEvent(data=null) {
         mylog('加载成功, 开始高亮', data);
         const query = this.query;
         if (!query) return;
+        // 加载完毕的页面不在当前页面, 直接退出
+        if (!this.page?.contains(data.detail.protyle.element)) return;
         // 暂时只处理sql语句的高亮
         if (query.type != '-s') return;
 
@@ -2015,25 +2107,43 @@ class SimpleSearchHZ extends siyuan.Plugin {
         if (!search_list) search_list = this.get_search_list();
         if (!search_list) return;
 
+        // 高亮 搜索结果列表里面的
         // 获取所有具有 b3-list-item__text 类的节点的文本子节点
         const search_list_text_nodes = Array.from(search_list.querySelectorAll(".b3-list-item__text:not(.ariaLabel)"), el => el.firstChild);
+        const allRanges = []; // 收集所有高亮范围
         query.keywords.forEach((keyword) => {
-            this.highlightKeywords(search_list_text_nodes, keyword, "highlight-keywords-search-list");
+            const ranges = this.highlightKeywords(search_list_text_nodes, keyword); // 收集当前关键词的高亮范围
+            allRanges.push(...ranges); // 合并到总范围
         });
-        // 创建 createTreeWalker 迭代器，用于遍历文本节点，保存到一个数组
+        const searchResultsHighlight = new Highlight(...allRanges.flat()); // 创建合并后的高亮对象
+        CSS.highlights.set("highlight-keywords-search-list", searchResultsHighlight); // 注册合并的高亮
+
+        // 高亮 点击搜索结果文档预览里面的
         const search_preview = this.get_ele('#searchPreview')
-        const tree_walker = document.createTreeWalker(search_preview.children[1].children[0], NodeFilter.SHOW_TEXT);
-        const search_preview_text_nodes = [];
-        let current_node = tree_walker.nextNode();
-        while (current_node) {
-            if (current_node.textContent.trim().length > 1) {
-                search_preview_text_nodes.push(current_node);
+        // 获取代码块里面是否有关键词, 为了之后是否延时高亮
+        let has_hljs = Array.from(search_preview.querySelectorAll('.hljs>div[spellcheck]'))
+        .some(ele => query.keywords.some(
+            keyword => ele.innerText.includes(keyword)
+        ));
+        setTimeout(() => {
+            // 创建 createTreeWalker 迭代器，用于遍历文本节点，保存到一个数组
+            const tree_walker = document.createTreeWalker(search_preview.children[1], NodeFilter.SHOW_TEXT);
+            const search_preview_text_nodes = [];
+            let current_node = tree_walker.nextNode();
+            while (current_node) {
+                if (current_node.textContent.trim().length > 1) {
+                    search_preview_text_nodes.push(current_node);
+                }
+                current_node = tree_walker.nextNode();
             }
-            current_node = tree_walker.nextNode();
-        }
-        query.keywords.forEach((keyword) => {
-            this.highlightKeywords(search_preview_text_nodes, keyword, "highlight-keywords-search-preview");
-        });
+            const previewRanges = [];
+            query.keywords.forEach((keyword) => {
+                const ranges = this.highlightKeywords(search_preview_text_nodes, keyword); // 收集搜索预览的高亮范围
+                previewRanges.push(...ranges);
+            });
+            const searchPreviewHighlight = new Highlight(...previewRanges.flat());
+            CSS.highlights.set("highlight-keywords-search-preview", searchPreviewHighlight)
+        }, has_hljs ? 300: 0);
     }
 
     sy_event_uninit() {
@@ -2070,9 +2180,12 @@ class SimpleSearchHZ extends siyuan.Plugin {
     }
     // 布局初始化完成后, 触发
     onLayoutReady() {
+        if (window.siyuan.isPublish) return;
         this.css          = null;
         this.page         = null;  // 搜索框所在的页面, 所有搜索都在此元素下搜索, 用于隔离 搜索页签和搜索弹窗
         this.is_searching = false; // 是否正在搜索
+        this.last_sort    = -1;    // 页面原始的排序方式
+        this.last_group   = -1;    // 页面原始的分组方式
 
         this.query        = {type:"", val:"", keywords:[], help:{}}; // 解析后的内容 {type: 搜索类型, val: 搜索内容, keywords: 关键词}
         this.g_setting    = {
@@ -2097,6 +2210,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
     }
 
     onunload() {
+        if (window.siyuan.isPublish) return;
         this.uninit_css_style();
         this.sy_event_uninit()
         console.log("HZ simple search stop...")
