@@ -1349,12 +1349,11 @@ class SimpleSearchHZ extends siyuan.Plugin {
             <td colspan="2">${this.code("ct>2025&ct<2027|ut=2024")}:查询2025-2027年期间创建 或 2024年更新的内容</td>
         </tr>
         <tr>
-            <td colspan="1">${this.strong(" 分组: ")}</td>
+            <td colspan="1" rowspan="3">${this.strong(" 分组&排序: ")}</td>
             <td colspan="2">${this.code("g<")}/${this.code("g>")}:按照文档分组</td>
             <td colspan="2">${this.code("nog<")}/${this.code("nog>")}:不按文档分组</td>
         </tr>
         <tr>
-            <td colspan="1" rowspan="2">${this.strong(" 排序: ")}</td>
             <td colspan="2">${this.code("type<")}/${this.code("type>")}:按照类型排序</td>
             <td colspan="2">${this.code("cont<")}/${this.code("cont>")}:原文内容顺序</td>
         </tr>
@@ -1369,7 +1368,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             <td colspan="4">${this.code("-")}"+要排除的关键词，排除指定关键词</td></tr>
         </tr>
         <tr>
-            <td colspan="4">${this.code("-e")}":文档模式, 以文档为单位进行搜索</td>
+            <td colspan="4">${this.code("-e")}":文档模式, 在符合条件的文档下进行搜索</td>
         </tr>
         </tbody></table>
         </div>`
@@ -1807,7 +1806,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             "-r": "正则表达式",
         }
         const type = typeMap[help.type] ? `${this.code(help.type)}${typeMap[help.type]}` : "识别错误"
-        let group_file = help.group_file ? `(文档模式)` : "";
+        let group_file = help.group_file ? `(文档模式, 在符合条件的文档下进行搜索)` : "";
         let separator = help.group_file ? `|` : "&";
         let keywords = handle_arr(help.keywords, '未识别', separator);
         let excluded = handle_arr(help.excluded, '空', '&');
