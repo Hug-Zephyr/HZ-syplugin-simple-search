@@ -438,23 +438,23 @@ function search_translator(arg) {
         if (is_group_file) {
             // 文档模式
             for (let word of keywords) {
-                sqlKeyWords += `or ${_buildSqlKeyWordsOnce(word)} `;
+                sqlKeyWords += ` or ${_buildSqlKeyWordsOnce(word)}`;
             }
             // 排除关键词, 文档模式不需要处理
-            return sqlKeyWords ? `(${sqlKeyWords.slice(3)})` : "true";
+            return sqlKeyWords ? `(${sqlKeyWords.slice(4)})` : "true";
         }
         else {
             // 块模式
             // 匹配关键词
             for (let word of keywords) {
-                sqlKeyWords += `and ${_buildSqlKeyWordsOnce(word)} `;
+                sqlKeyWords += ` and ${_buildSqlKeyWordsOnce(word)}`;
             }
     
             // 排除关键词
             for (let word of excludedKeywords) {
-                sqlKeyWords += `and ${_buildSqlKeyWordsOnce(word, true)} `;
+                sqlKeyWords += ` and ${_buildSqlKeyWordsOnce(word, true)}`;
             }
-            return sqlKeyWords ? `(${sqlKeyWords.slice(4)})` : "true";
+            return sqlKeyWords ? `(${sqlKeyWords.slice(5)})` : "true";
         }
     }
 
@@ -472,7 +472,7 @@ function search_translator(arg) {
             "[dlptbsicm]": (types) => {
                 const basic_type = types.replace(/[^dlptbsicm]/g, "");
                 Array.from(basic_type).forEach((type_once) => help.block_type[type_once] = blockHelpMap[type_once]);
-                return `type rlike '^[${basic_type}]$' `
+                return `type rlike '^[${basic_type}]$'`
             },
             // 搜索子标题的sql语句
             "h[1-6]*": (types) => {
@@ -485,7 +485,7 @@ function search_translator(arg) {
                 }
                 else {
                     help.block_type[types] = `${[...new Set(subType.split(''))].join(',')}级标题`;
-                    return `(${headType} and subtype rlike '^h[${subType}]$') `;
+                    return `(${headType} and subtype rlike '^h[${subType}]$')`;
                 }
             },
             // 搜索待办的sql语句
@@ -500,18 +500,18 @@ function search_translator(arg) {
                     if(todoCondition) todoCondition += ' or ';
                     todoCondition += "markdown like '%[x] %'";
                 }
-                return `(subtype like 't' and type not like 'l' and (${todoCondition})) `;
+                return `(subtype like 't' and type not like 'l' and (${todoCondition}))`;
             },
             // 搜索带链接的块的sql语句
             "[L]": () => {
                 help.block_type['L'] = "表示带有链接的块";
-                return `(type rlike '^[htp]$' and markdown like '%[%](%)%') `
+                return `(type rlike '^[htp]$' and markdown like '%[%](%)%')`
             },
         };
         // 解析选项, 拼接sql语句
         for (let key in typeHandlers) {
             if (sqlTypes.match(key)) {
-                if (sqlTypeRlike !== "") sqlTypeRlike += "or ";
+                if (sqlTypeRlike !== "") sqlTypeRlike += " or ";
                 sqlTypeRlike += typeHandlers[key](sqlTypes);
             }
         }
@@ -525,7 +525,7 @@ function search_translator(arg) {
                     help.block_type[blockTypeMapping[key]] = blockHelpMap[blockTypeMapping[key]];
                 }
             }
-            sqlTypeRlike = `type rlike '^[${types}]$' `;
+            sqlTypeRlike = `type rlike '^[${types}]$'`;
         }
         return sqlTypeRlike ? `(${sqlTypeRlike})` : "true";
     }
@@ -534,18 +534,18 @@ function search_translator(arg) {
         let sqlGroupByFile = "";
         if (options.match(/e/)) {
             // 文档模式才处理
-            let sqlTypeRlike = 'and ' + _buildSqlTypeRlike(options);
-            if (sqlTypeRlike == 'and true') sqlTypeRlike = '';
             // 暂时先不处理块类型
+            // let sqlTypeRlike = 'and ' + _buildSqlTypeRlike(options);
+            // if (sqlTypeRlike == 'and true') sqlTypeRlike = '';
             for (let word of keywords) {
-                sqlGroupByFile += `and root_id in (select root_id from blocks where ${_buildSqlKeyWordsOnce(word)}) `;
+                sqlGroupByFile += ` and root_id in (select root_id from blocks where ${_buildSqlKeyWordsOnce(word)})`;
             }
             // 排除关键词
             for (let word of excludedKeywords) {
-                sqlGroupByFile += `and root_id not in (select root_id from blocks where ${_buildSqlKeyWordsOnce(word)}) `;
+                sqlGroupByFile += ` and root_id not in (select root_id from blocks where ${_buildSqlKeyWordsOnce(word)})`;
             }
         }
-        return sqlGroupByFile ? `(${sqlGroupByFile.slice(4)})` : "true";
+        return sqlGroupByFile ? `(${sqlGroupByFile.slice(5)})` : "true";
     }
     // [拼接sql] 过滤时间
     const _buildSqlFilterTime = function() {
@@ -621,16 +621,15 @@ function search_translator(arg) {
                 const idx = path.indexOf('/');
                 if (idx === -1) {
                     boxPath = path;
-                    filterPath += `(box="${boxPath}")`;
+                    filterPath += ` or (box="${boxPath}")`;
                 } else {
                     boxPath = path.slice(0, idx);
                     filePath = path.slice(idx);
-                    filterPath += `(box="${boxPath}" and path like '${filePath}%')`;
+                    filterPath += ` or (box="${boxPath}" and path like '${filePath}%')`;
                 }
-                filterPath += " or ";
             };
             if (filterPath.length) {
-                sqlCurrentDoc = `${filterPath.slice(0, -3)}`;
+                sqlCurrentDoc = `${filterPath.slice(4)}`;
             }
         }
         return sqlCurrentDoc ? `(${sqlCurrentDoc})` : "true";
@@ -688,9 +687,6 @@ function search_translator(arg) {
         if (arg.group) {
             // 按照文档分组, 只支持指定的第一个方式或页面
             sqlOrderBy = defaultOrderBy;
-            if (custom_sort.length) {
-                arg.sort = custom_sort.length ? custom_sort[0] : arg.sort;
-            }
             arg.sort = custom_sort.length ? custom_sort[0] : arg.sort;
             switch(arg.sort) {
             case TYPE_SORT:
