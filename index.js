@@ -1499,7 +1499,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         history_ul.querySelector('.b3-list-item--focus')?.classList.remove('b3-list-item--focus');
         item.classList.add('b3-list-item--focus');
         item.scrollIntoView({
-            behavior: 'smooth', // 可选：平滑滚动
+            behavior: 'auto', // 不用平滑滚动, 如果快速切换的时候, 选中的会不在可见区域内
             block: 'center'   // 或 'start', 'center', 'end'
         })
         this.get_search_input().value = item.getAttribute('title');
