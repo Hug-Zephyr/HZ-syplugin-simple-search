@@ -594,7 +594,18 @@ function search_translator(arg) {
             const path_arr = path.split('/').filter(part => part !== '');
             if (path_arr.length == 0) return;
             help.excludedPath.push(`*${path_arr.join('*/*')}*`);
-            sqlCustomPath += ` and (hpath not like '%${path_arr.join('%')}%')`;
+            // 1. 只搜索笔记本下面的路径
+            let sql_once = `(hpath like '%${path_arr.join('%')}%')`;
+            // 2. 将第一个路径当做笔记本, 剩余的当做笔记本下面的路径
+            const book_arr = SYT.get_book_arr_from_name(path_arr[0]);
+            path_arr.shift();
+            // 有对应的笔记本id && 还有其他路径, 才搜笔记本
+            // 而且笔记本可能是有多个, 都要搜出来
+            if (book_arr.length) {
+                const path_sql = path_arr.length ? ` and hpath like '%${path_arr.join('%')}%'` : '';
+                sql_once += ` or (box in ("${book_arr.join('","')}")${path_sql})`
+            }
+            sqlCustomPath += ` and not (${sql_once})`;
         });
 
         return sqlCustomPath ? `(${sqlCustomPath.slice(5)})` : "true";
