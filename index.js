@@ -139,6 +139,9 @@ const SYT = {
     get_search_history() { // 获取搜索历史
         return window.siyuan.storage['local-searchkeys'].keys;
     },
+    delete_search_history(del_item) { // 删除某个搜索历史
+        window.siyuan.storage['local-searchkeys'].keys = window.siyuan.storage['local-searchkeys'].keys.filter(item => item != del_item);
+    },
     get_last_search_k() { // 获取上个搜索历史
         for (const item of window.siyuan.storage['local-searchkeys'].keys) {
             if (item) return item;
@@ -1496,10 +1499,21 @@ class SimpleSearchHZ extends siyuan.Plugin {
             <ul id="simpleSearchHistoryList" class="HZ-search-history-list b3-menu b3-menu--list b3-list b3-list--background fn__none"></ul>
         `);
         this.get_search_history_ul().addEventListener('click', (event) => {
-            const li = event.target.closest('li.HZ-search-history-li');
-            if (!li) return;
-            this.get_search_input().value = li.getAttribute('title');
-            this.search_history_dispatch_input();
+            const ele = event.target;
+            const li = ele.closest('li.HZ-search-history-li');
+            const input = this.get_search_input();
+            if (ele.closest('svg.HZ-search-history-svg')) {
+                // 从搜索历史记录里面删掉
+                SYT.delete_search_history(li.getAttribute('title'));
+                // 隐藏这个历史
+                li.remove();
+                // 光标聚焦到输入框, 方便点击了删除按钮之后, 继续通过上下键选择搜索历史
+                input.focus();
+            }
+            else if (li) {
+                input.value = li.getAttribute('title');
+                this.search_history_dispatch_input();
+            }
         });
     }
 
@@ -1524,7 +1538,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         for (let i = 0; i < history.length; i++) {
             let html_val = history[i];
             let real_val = html_val.replace(/<span class="HZ-search-history-highlight">/g, "").replace(/<\/span>/g, "");
-            history_ul.insertAdjacentHTML('beforeend', `<li class="HZ-search-history-li b3-list-item" style="width:${rect.width}px" title="${real_val}"><span class="b3-list-item__text">${html_val}</span></li>`);
+            let close_html = `<svg class="HZ-search-history-svg b3-menu__action b3-menu__action--close"><use xlink:href="#iconCloseRound"></use></svg>`;
+            history_ul.insertAdjacentHTML('beforeend', `<li class="HZ-search-history-li b3-list-item" style="width:${rect.width}px" title="${real_val}"><span class="b3-list-item__text">${html_val}</span>${close_html}</li>`);
             // tempMenu.addSeparator(1);
         }
         // 获取位置信息
@@ -1543,7 +1558,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         const input_val = this.get_search_input().value;
         const input_html = `<span class="HZ-search-history-highlight">${input_val}</span>`;
         // 完全没有匹配到历史记录 || 完全匹配到历史记录 的时候, 关掉历史记录, 触发原生搜索事件
-        if (!history.length || history.indexOf(input_html) != -1) {
+        if (!history.length || history.includes(input_html)) {
             // console.log('完全匹配到/完全没匹配到, 触发原生搜索事件');
             this.search_history_dispatch_input();
             return;
