@@ -20,6 +20,14 @@
         font-weight:bold;
         color: var(--b3-font-color6);
     }
+    /* 悬浮的时候显示删除按钮 */
+    li:hover>svg {
+        opacity: 1;
+    }
+    /* 快速点击关闭按钮的时候, 不选中文字 */
+    li {
+        user-select: none;
+    }
 } 
 
 /* 辅助信息显示区域 */
