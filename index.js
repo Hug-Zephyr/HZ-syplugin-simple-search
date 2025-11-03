@@ -1298,9 +1298,11 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // 1. 信息显示框, 一定插入, 通过开关控制是否显示
         const criteria = this.get_ele('#criteria');
         const is_show = this.g_setting.assist_sw ? "contents" : "none";
+        // 适配浅吟主题的搜索框上移
+        const order = window.getComputedStyle(criteria).order;
         criteria.insertAdjacentHTML('afterend', `
             <div id="simpleSearchAssistArea" style="display: ${is_show};">
-                <div id="simpleSearchTextarea" class="fn__block b3-text-field ${is_show}" placeholder="简搜: 辅助信息" spellcheck="false"></div>
+                <div id="simpleSearchTextarea" class="fn__block b3-text-field ${is_show}" placeholder="简搜: 辅助信息" spellcheck="false" style="order: ${order};"></div>
             </div>
         `);
     }
