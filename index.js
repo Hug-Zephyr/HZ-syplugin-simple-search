@@ -88,7 +88,14 @@ function js_insert_css(css) {
     // 删除
     // style.remove();
 }
-
+function escapeHtml(unsafe) {
+    return unsafe
+        .replace(/&/g, "&amp;") // 转义&符号
+        .replace(/</g, "&lt;")  // 转义<符号
+        .replace(/>/g, "&gt;")  // 转义>符号
+        .replace(/"/g, "&quot;") // 转义双引号
+        .replace(/'/g, "&#039;") // 转义单引号
+}
 const SYT = {
     // 插件生成的sql的标记
     // SQL_FLAG: '("simple_search_flag"="simple_search_flag")',
@@ -913,10 +920,10 @@ function matchHistory(input, history, is_all=false) {
                     j++;
                 }
                 const matchedText = record.substring(i, j);
-                result.push(`<span class="HZ-search-history-highlight">${matchedText}</span>`);
+                result.push(`<span class="HZ-search-history-highlight">${escapeHtml(matchedText)}</span>`);
                 i = j;
             } else {
-                result.push(record[i]);
+                result.push(escapeHtml(record[i]));
                 i++;
             }
         }
@@ -951,7 +958,7 @@ function matchHistory(input, history, is_all=false) {
             const highlighted = _highlightMatch(record, inputTrimmed);
             matchedResults.push({ record: highlighted, score: matchScore, original: record });
         } else if (is_all){
-            unmatchedResults.push(record);
+            unmatchedResults.push(escapeHtml(record));
         }
     }
 
@@ -1538,6 +1545,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         })
         this.get_search_input().value = item.getAttribute('title');
     }
+
     // 更新搜索历史列表的显示
     update_search_history_list_html(history) {
         this.hidden_search_history_list();
@@ -1564,7 +1572,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
     }
     // 显示历史搜索记录
     show_search_history_list(history) {
-        const input_val = this.get_search_input().value;
+        const input_val = escapeHtml(this.get_search_input().value);
         const input_html = `<span class="HZ-search-history-highlight">${input_val}</span>`;
         // 完全没有匹配到历史记录 || 完全匹配到历史记录 的时候, 关掉历史记录, 触发原生搜索事件
         if (!history.length || history.includes(input_html)) {
@@ -1656,7 +1664,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                         // 强制显示历史记录
                         const input = this.get_search_input().value;
                         let history = matchHistory(input, SYT.get_search_history(), true);
-                        const input_html = `<span class="HZ-search-history-highlight">${input}</span>`;
+                        const input_html = `<span class="HZ-search-history-highlight">${escapeHtml(input)}</span>`;
                         history = history.filter(record => input_html != record);
                         this.show_search_history_list(history);
                     }
