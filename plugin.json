@@ -2,7 +2,7 @@
   "name": "HZ-syplugin-simple-search",
   "author": "Hug-Zephyr",
   "url": "https://github.com/Hug-Zephyr/HZ-syplugin-simple-search",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "minAppVersion": "3.2.1",
   "backends": ["all"],
   "frontends": ["desktop", "desktop-window", "browser-desktop"],
