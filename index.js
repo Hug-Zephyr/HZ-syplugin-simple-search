@@ -1259,7 +1259,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             ${get_html_radio_sw(g_setting.restree_style)}
             ${get_html_setting_once("", "搜索结果优先", "开启后，搜索结果将显示在同级分组的上面, 树结构才生效", get_html_check_sw("simpleSearchResTop", g_setting.search_res_top))}
             ${get_html_setting_once("", "显示全路径", "开启后, 分组的文档将显示全路径, 而不是只有文档名, 树结构才生效", get_html_check_sw("simpleSearchAllPath", g_setting.restree_all_path))}
-            ${get_html_head('🎯', '搜索跳转后效果')}
+            ${get_html_head('🎯', '搜索跳转后效果 (在开启了接管搜索结果才生效)')}
             ${get_html_setting_once("", "跳转后, 高亮关键词", "通过 双击/回车 跳转到对应位置后, 高亮搜索的关键词", get_html_check_sw("simpleSearchJumpHighlight", g_setting.is_highlight_open))}
             ${get_html_setting_once("", "跳转后, 闪烁当前块", "通过 双击/回车 跳转到对应位置后, 闪烁当前的块", get_html_check_sw("simpleSearchJumpBlink", g_setting.is_blink_open))}
             ${get_html_setting_once("", "跳转后, 移动光标", "通过 双击/回车 跳转到对应位置后, 将光标移动到第一个匹配到的位置", get_html_check_sw("simpleSearchMoveCursor", g_setting.is_jump_to_match))}
@@ -1296,7 +1296,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         };
         // 搜索结果 相关开关
         const handle_search_restree = (key, is_check) => {
-            handle_switch_state_change()
+            handle_switch_state_change(key, is_check)
             // 更新搜索结果
             this.init_css_style();
             this.show_search_res();
