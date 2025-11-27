@@ -1207,14 +1207,14 @@ class SimpleSearchHZ extends siyuan.Plugin {
         const get_html_check_sw = function (id, sw) {
             return `<input class="b3-switch fn__flex-center" id="${id}" type="checkbox" ${sw ? 'checked=""' : ''}>`
         }
-        const get_html_radio_sw = function (tree_style) {
+        const get_html_restree_style = function (tree_style) {
             let is_native_list = tree_style == "native_list" ? "checked" : "";
             let is_native_tree = tree_style == "native_tree" ? "checked" : "";
             let is_colorful    = tree_style == "colorful" ? "checked" : "";
             let is_ediary      = tree_style == "ediary" ? "checked" : "";
             return `
                 <div class="fn__flex b3-label">
-                    ${get_html_cfg_name('搜索结果样式 <a href="https://ld246.com/article/1759408628406">了解更多</a>', '选择树结构竖线的显示风格')}
+                    ${get_html_cfg_name('搜索结果样式 - <a href="https://ld246.com/article/1759408628406">了解更多</a>', '选择搜索结果的显示风格, 全部风格都会按照文档路径名进行排序')}
                     <span class="fn__space"></span>
                     <div class="radio-group" id="simpleSearchTreeStyle">
                         <div class="radio-item">
@@ -1237,6 +1237,36 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 </div>
             `
         }
+        const get_html_cursor_style = function (cursor_style) {
+            let is_none   = cursor_style == "none" ? "checked" : "";
+            let is_before = cursor_style == "before" ? "checked" : "";
+            let is_select = cursor_style == "select" ? "checked" : "";
+            let is_after  = cursor_style == "after" ? "checked" : "";
+            return `
+                <div class="fn__flex b3-label">
+                    ${get_html_cfg_name('光标定位样式', '通过 双击/回车 跳转到对应位置后, 将光标定位至第一个匹配到的位置')}
+                    <span class="fn__space"></span>
+                    <div class="radio-group" id="simpleSearchCursorStyle">
+                        <div class="radio-item">
+                            <input type="radio" id="simpleSearchCursorNone" name="cursorStyle" ${is_none}>
+                            <label for="simpleSearchCursorNone">不定位</label>
+                        </div>
+                        <div class="radio-item">
+                            <input type="radio" id="simpleSearchCursorBefore" name="cursorStyle" ${is_before}>
+                            <label for="simpleSearchCursorBefore">关键词之前</label>
+                        </div>
+                        <div class="radio-item">
+                            <input type="radio" id="simpleSearchCursorSelect" name="cursorStyle" ${is_select}>
+                            <label for="simpleSearchCursorSelect">选中关键词</label>
+                        </div>
+                        <div class="radio-item">
+                            <input type="radio" id="simpleSearchCursorAfter" name="cursorStyle" ${is_after}>
+                            <label for="simpleSearchCursorAfter">关键词之后</label>
+                        </div>
+                    </div>
+                </div>
+            `
+        }
         const get_html_setting_once = function(id, name, desc, sw_html) {
             id = id ? `id = "${id}"` : ""
             return `
@@ -1252,17 +1282,17 @@ class SimpleSearchHZ extends siyuan.Plugin {
         return `<div id="simpleSearchAssistSetting">
             <span>(温馨提示: 修改后会自动保存; 拖动方框右下角可以调整显示区域)</span>
             ${get_html_head('🕒', '历史记录')}
-            ${get_html_setting_once("", "接管历史记录", `开启后, 可通过${this.code('alt+↓')}切换历史记录列表显示与隐藏, 以及打开自动显示的开关;<br>可通过${this.code('alt+↑')}隐藏历史记录, 以及关掉自动显示的开关<br>备注: 关闭后, 不会影响自动显示开关; 思源原生的历史记录依旧可以通过点击进行正常操作`, get_html_check_sw("simpleSearchReplaceHistory", g_setting.replace_history))}
+            ${get_html_setting_once("", "接管历史记录", `开启后:<br>1.可通过${this.code('alt+↓')}切换历史记录列表显示与隐藏, 以及打开自动显示的开关;<br>2.可通过${this.code('alt+↑')}隐藏历史记录, 以及关掉自动显示的开关;<br>3.依旧可以通过点击, 正常使用思源原生的历史记录功能;<br>关闭后: 不影响自动显示的功能; `, get_html_check_sw("simpleSearchReplaceHistory", g_setting.replace_history))}
             ${get_html_setting_once("", "自动显示历史记录", "开启后, 在搜索框输入内容会先匹配搜索历史, 点击/回车后才会触发真正的搜索<br>备注: 完全匹配到/完全没匹配到的时候, 不会自动显示", get_html_check_sw("simpleSearchHistoryAuto", g_setting.history_auto))}
             ${get_html_head('🔍', '搜索结果相关')}
-            ${get_html_setting_once("", "接管搜索结果", "开启后, 搜索结果将以新的样式进行显示, 仅在分组下生效", get_html_check_sw("simpleSearchTreeSw", g_setting.replace_search_res))}
-            ${get_html_radio_sw(g_setting.restree_style)}
-            ${get_html_setting_once("", "搜索结果优先", "开启后，搜索结果将显示在同级分组的上面, 树结构才生效", get_html_check_sw("simpleSearchResTop", g_setting.search_res_top))}
-            ${get_html_setting_once("", "显示全路径", "开启后, 分组的文档将显示全路径, 而不是只有文档名, 树结构才生效", get_html_check_sw("simpleSearchAllPath", g_setting.restree_all_path))}
-            ${get_html_head('🎯', '搜索跳转后效果 (在开启了接管搜索结果才生效)')}
-            ${get_html_setting_once("", "跳转后, 高亮关键词", "通过 双击/回车 跳转到对应位置后, 高亮搜索的关键词", get_html_check_sw("simpleSearchJumpHighlight", g_setting.is_highlight_open))}
-            ${get_html_setting_once("", "跳转后, 闪烁当前块", "通过 双击/回车 跳转到对应位置后, 闪烁当前的块", get_html_check_sw("simpleSearchJumpBlink", g_setting.is_blink_open))}
-            ${get_html_setting_once("", "跳转后, 移动光标", "通过 双击/回车 跳转到对应位置后, 将光标移动到第一个匹配到的位置", get_html_check_sw("simpleSearchMoveCursor", g_setting.is_jump_to_match))}
+            ${get_html_setting_once("", "接管搜索结果 - 按文档分组时生效", "开启后, 搜索结果将以新的样式进行显示", get_html_check_sw("simpleSearchTreeSw", g_setting.replace_search_res))}
+            ${get_html_restree_style(g_setting.restree_style)}
+            ${get_html_setting_once("", "搜索结果优先 - 树结构时生效", "开启后，搜索结果将显示在同级分组的上面", get_html_check_sw("simpleSearchResTop", g_setting.search_res_top))}
+            ${get_html_setting_once("", "显示全路径 - 树结构时生效", "开启后, 分组的文档将显示全路径, 而不是只有文档名", get_html_check_sw("simpleSearchAllPath", g_setting.restree_all_path))}
+            ${get_html_head('🎯', '搜索结果跳转后效果 - 开启接管搜索结果时生效')}
+            ${get_html_setting_once("", "高亮关键词", "通过 双击/回车 跳转到对应位置后, 高亮搜索的关键词", get_html_check_sw("simpleSearchJumpHighlight", g_setting.is_highlight_open))}
+            ${get_html_setting_once("", "闪烁当前块", "通过 双击/回车 跳转到对应位置后, 闪烁当前的块<br>备注: 思源官方在v3.4.1版本已支持, 建议关闭", get_html_check_sw("simpleSearchJumpBlink", g_setting.is_blink_open))}
+            ${get_html_cursor_style(g_setting.cursor_position)}
         </div>`;
         // ${get_html_setting_once("", "树样式同步至文档树", "开启后, 文档树和大纲会修改成与搜索结果相同的样式", get_html_check_sw("simpleSearchSyncTree", g_setting.sync_file))}
     }
@@ -1285,7 +1315,10 @@ class SimpleSearchHZ extends siyuan.Plugin {
             simpleSearchStyleEdiary    : 'ediary',              // 树样式: eDiary风格
             simpleSearchJumpHighlight  : 'is_highlight_open',   // 跳转后, 高亮关键词
             simpleSearchJumpBlink      : 'is_blink_open',       // 跳转后, 闪烁当前块
-            simpleSearchMoveCursor     : 'is_jump_to_match',    // 跳转后, 移动光标至匹配的位置
+            simpleSearchCursorNone     : 'none',                // 跳转后, 移动光标至匹配的位置
+            simpleSearchCursorBefore   : 'before',              // 跳转后, 移动光标至匹配的位置
+            simpleSearchCursorSelect   : 'select',              // 跳转后, 移动光标至匹配的位置
+            simpleSearchCursorAfter    : 'after',               // 跳转后, 移动光标至匹配的位置
         }
         // 仅处理开关变化
         const handle_switch_state_change = (key, is_check) => {
@@ -1311,6 +1344,14 @@ class SimpleSearchHZ extends siyuan.Plugin {
             this.init_css_style();
             this.show_search_res();
         }
+        // 光标定位
+        const handle_cursor_position = (cursor_type, is_check) => {
+            if (!is_check) return;
+            // 赋值, 保存到文件
+            if (this.g_setting.cursor_position == cursor_type) return;
+            this.g_setting.cursor_position = cursor_type;
+            this.save_plugin_setting();
+        }
         const func_map = {
             simpleSearchHistoryAuto    : handle_switch_state_change,
             simpleSearchReplaceHistory : handle_switch_state_change,
@@ -1324,7 +1365,10 @@ class SimpleSearchHZ extends siyuan.Plugin {
             simpleSearchStyleEdiary    : handle_restree_style,
             simpleSearchJumpHighlight  : handle_switch_state_change,
             simpleSearchJumpBlink      : handle_switch_state_change,
-            simpleSearchMoveCursor     : handle_switch_state_change,
+            simpleSearchCursorNone     : handle_cursor_position,
+            simpleSearchCursorBefore   : handle_cursor_position,
+            simpleSearchCursorSelect   : handle_cursor_position,
+            simpleSearchCursorAfter    : handle_cursor_position,
         }
         text_area.addEventListener('change', (event) => {
             const id = event.target.id;
@@ -1633,8 +1677,10 @@ class SimpleSearchHZ extends siyuan.Plugin {
         inputElement?.addEventListener('input', (event) => {
             // console.log('input事件触发', event.inputType, event.target.value, this.history_input_flag, event.isComposing, this.is_searching);
             if (!this.g_setting.history_auto) return;
-            // 上次触发的搜索还没有结束, 不处理这次的input, 走思源原生input逻辑
-            if (this.is_searching) return;
+            if (this.is_searching) {
+                // console.log('上次触发的搜索还没有结束, 不处理这次的input, 走思源原生input逻辑');
+                return;
+            }
             if (event.isComposing) {
                 event.stopPropagation(); // 阻止传播
                 // console.log('任何地方都不处理这次的input');
@@ -2256,81 +2302,145 @@ class SimpleSearchHZ extends siyuan.Plugin {
             CSS.highlights.set("highlight-keywords-search-preview", searchPreviewHighlight)
         }, has_hljs ? 300: 0);
     }
-    placeCursorBeforeFirstMatch(element, keywords) {
-        // 必须是 contenteditable 元素
+    scrollToCursor() {
+        const selection = window.getSelection();
+        if (!selection.rangeCount) return;
+
+        const range = selection.getRangeAt(0);
+        const startContainer = range.startContainer;
+
+        // 获取光标所在的真实元素
+        const currentElement = startContainer.nodeType === Node.TEXT_NODE
+            ? startContainer.parentElement
+            : startContainer;
+
+        // 向上查找滚动容器
+        const scrollContainer = currentElement.closest('.protyle-content.protyle-content--transition');
+        if (!scrollContainer) return; // 没找到容器
+
+        // 获取光标位置（相对于视口）
+        const cursorRect = range.getBoundingClientRect();
+        if (cursorRect.height == 0 && cursorRect.width == 0) return
+
+        // 获取容器的视口范围
+        const containerRect = scrollContainer.getBoundingClientRect();
+        const viewportHeight = containerRect.height;
+
+        // 判断光标是否在容器可视区域内
+        const isAbove = cursorRect.top < containerRect.top;
+        const isBelow = cursorRect.bottom > containerRect.bottom;
+
+        if (isAbove || isBelow) {
+            // 计算滚动偏移：让光标在容器内居中
+            const targetScrollTop = (cursorRect.top - containerRect.top) - viewportHeight / 2;
+
+            scrollContainer.scrollBy({
+                top: targetScrollTop,
+                behavior: 'smooth'
+            });
+        }
+    }
+    handleCursorPosition(element, keywords, type) {
+        // 参数校验
+        if (!element || !keywords || !Array.isArray(keywords) || keywords.length === 0) {
+            return;
+        }
+
+        const validTypes = ['before', 'select', 'after'];
+        if (!validTypes.includes(type)) {
+            return;
+        }
+
         if (!element.isContentEditable) {
             // console.log('元素不是 contenteditable');
             return;
         }
 
-        const text = element.textContent;
+        const textContent = element.textContent;
 
-        let matchIndex = -1;
-        let matchedKeyword = null;
+        // 查找最先出现的关键词
+        let firstMatch = null;
+        let firstIndex = -1;
 
-        // 查找第一个出现的关键词
         for (const keyword of keywords) {
-            const index = text.indexOf(keyword);
-            if (index !== -1 && (matchIndex === -1 || index < matchIndex)) {
-                matchIndex = index;
-                matchedKeyword = keyword;
+            const index = textContent.indexOf(keyword);
+            if (index !== -1 && (firstIndex === -1 || index < firstIndex)) {
+                firstIndex = index;
+                firstMatch = keyword;
             }
         }
 
-        // 没有找到匹配项
-        if (matchIndex === -1) {
-            // console.log('未找到匹配的关键词');
+        if (!firstMatch) {
             return;
         }
 
-        // 创建 Range 和 Selection
-        const range = document.createRange();
-        const selection = window.getSelection();
+        const startOffset = firstIndex;
+        const endOffset = firstIndex + firstMatch.length;
 
-        // 找到匹配关键词前的位置（即匹配开始处）
-        const walker = document.createTreeWalker(
-            element,
-            NodeFilter.SHOW_TEXT,
-            null
-        );
+        // 将偏移量映射到 DOM 中的实际文本节点
+        function findNodeAtOffset(root, offset) {
+            const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+                acceptNode: (node) => {
+                    // 只遍历包含可见文本的文本节点
+                    return NodeFilter.FILTER_ACCEPT;
+                }
+            });
 
-        let cumulativeLength = 0;
-        let targetNode = null;
-        let targetOffset = 0;
+            let currentOffset = 0;
+            let node;
 
-        while (walker.nextNode()) {
-            const node = walker.currentNode;
-            const nodeLength = node.textContent.length;
+            while ((node = walker.nextNode())) {
+                const nodeTextLength = node.textContent.length;
 
-            // 检查匹配位置是否在当前文本节点中
-            if (matchIndex < cumulativeLength + nodeLength) {
-                targetNode = node;
-                targetOffset = matchIndex - cumulativeLength;
-                break;
+                if (currentOffset + nodeTextLength >= offset) {
+                    return {
+                        node,
+                        offset: offset - currentOffset
+                    };
+                }
+
+                currentOffset += nodeTextLength;
             }
 
-            cumulativeLength += nodeLength;
+            // 如果超出总长度，返回最后一个位置
+            const lastNode = walker.lastChild();
+            return { node: lastNode, offset: lastNode.textContent.length };
         }
 
-        if (targetNode) {
-            range.setStart(targetNode, targetOffset);
-            range.collapse(true); // 光标放在前面
+        // 获取开始和结束位置
+        const start = findNodeAtOffset(element, startOffset);
+        const end = type === 'before' ? start : findNodeAtOffset(element, endOffset);
 
-            selection.removeAllRanges();
-            selection.addRange(range);
+        // 创建选区
+        const range = document.createRange();
+        const sel = window.getSelection();
+        sel.removeAllRanges();
 
-            // 确保元素获得焦点
+        try {
+            if (type === 'before') {
+                range.setStart(start.node, start.offset);
+                range.collapse(true);
+            } else if (type === 'select') {
+                range.setStart(start.node, start.offset);
+                range.setEnd(end.node, end.offset);
+            } else if (type === 'after') {
+                range.setStart(end.node, end.offset);
+                range.collapse(true);
+            }
+
+            sel.addRange(range);
             element.focus();
-        } else {
-            // console.warn('未找到目标文本节点');
+        } catch (e) {
+            // console.error('Failed to set cursor or selection', e);
         }
+        this.scrollToCursor();
     }
 
     // 通过搜索结果打开, 就高亮/闪烁
     switchProtyleEvent(data=null) {
         if (!this.click_res_flag) return;
         const g_setting = this.g_setting;
-        if (!(g_setting.is_jump_to_match || g_setting.is_highlight_open || g_setting.is_blink_open)) return
+        if (!(g_setting.cursor_position != 'none' || g_setting.is_highlight_open || g_setting.is_blink_open)) return
         const keywords = this.query?.keywords;
         if (!keywords) return;
 
@@ -2343,10 +2453,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
             const cursor_ele = getElementAtCursor()?.closest('[data-node-id]');
             if (!cursor_ele) return;
 
-            if (g_setting.is_jump_to_match) {
-                // 移动光标至匹配到的第一个位置
-                this.placeCursorBeforeFirstMatch(cursor_ele, keywords);
-            }
+            this.handleCursorPosition(cursor_ele, keywords, g_setting.cursor_position)
+
             if (g_setting.is_blink_open) {
                 // 闪烁当前块
                 cursor_ele.classList.add('protyle-wysiwyg--hl');
@@ -2405,7 +2513,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
             // 解析并载入配置
             try {
                 mylog("载入配置: ", settingFile);
-                if (settingFile['restree_cfg']) delete settingFile['restree_cfg'];
+                if ('restree_cfg' in settingFile) delete settingFile['restree_cfg'];
+                if ('is_jump_to_match' in settingFile) delete settingFile['is_jump_to_match'];
                 if (settingFile['restree_style'] == 'native') delete settingFile['restree_style'];
                 Object.assign(this.g_setting, settingFile);
             }catch(e){
@@ -2442,7 +2551,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             restree_all_path  : true,           // 显示全路径
             is_highlight_open : true,           // 通过 双击/回车 跳转到对应位置后, 高亮搜索的关键词
             is_blink_open     : false,          // 通过 双击/回车 跳转到对应位置后, 闪烁当前的块
-            is_jump_to_match  : true,           // 通过 双击/回车 跳转到对应位置后, 将光标移动到第一个匹配到的位置
+            cursor_position   : "after",        // 通过 双击/回车 跳转到对应位置后, 光标效果: 不处理:none, 之前:before, 选中:select, 之后:after
         }
         this.load_plugin_setting(() => {
             this.save_plugin_setting();
