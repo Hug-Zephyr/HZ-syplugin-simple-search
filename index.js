@@ -112,6 +112,17 @@ function escapeHtml(unsafe) {
         .replace(/"/g, "&quot;") // 转义双引号
         .replace(/'/g, "&#039;") // 转义单引号
 }
+
+// 转义 SQL 字符串字面量中的单引号
+function escapeSqlString(str) {
+    return String(str).replace(/'/g, "''");
+}
+
+// 转义 LIKE 模式中的通配符, 使用时需配合 escape '!'
+function escapeSqlLike(str) {
+    return escapeSqlString(str).replace(/[!%_]/g, m => '!' + m);
+}
+
 const SYT = {
     // 插件生成的sql的标记
     // SQL_FLAG: '("simple_search_flag"="simple_search_flag")',
@@ -458,11 +469,14 @@ function search_translator(arg) {
         return querySyntax;
     }
     const _buildSqlKeyWordsOnce = function(word, is_exclude = false) {
+        const word_like = escapeSqlLike(word);
+        const like = `like '%${word_like}%' escape '!'`;
+        const not_like = `not ${like}`;
         if (is_exclude) {
-            return `(content not like '%${word}%' and name not like '%${word}%' and alias not like '%${word}%' and memo not like '%${word}%')`;
+            return `(content ${not_like} and name ${not_like} and alias ${not_like} and memo ${not_like})`;
         }
         else {
-            return `(content like '%${word}%' or name like '%${word}%' or alias like '%${word}%' or memo like '%${word}%')`;
+            return `(content ${like} or name ${like} or alias ${like} or memo ${like})`;
         }
     }
 
@@ -507,12 +521,12 @@ function search_translator(arg) {
             "[dlptbsicm]": (types) => {
                 const basic_type = types.replace(/[^dlptbsicm]/g, "");
                 Array.from(basic_type).forEach((type_once) => help.block_type[type_once] = blockHelpMap[type_once]);
-                return `type rlike '^[${basic_type}]$'`
+                return `type regexp '^[${basic_type}]$'`
             },
             // 搜索子标题的sql语句
             "h[1-6]*": (types) => {
                 types = types.match(/h[1-6]*/g)[0];
-                const headType = `type rlike '^[h]$'`;
+                const headType = `type regexp '^[h]$'`;
                 const subType = types.replace(/[^\d]/g, "");
                 if (subType == '') {
                     help.block_type['h'] = "标题";
@@ -520,7 +534,7 @@ function search_translator(arg) {
                 }
                 else {
                     help.block_type[types] = `${[...new Set(subType.split(''))].join(',')}级标题`;
-                    return `(${headType} and subtype rlike '^h[${subType}]$')`;
+                    return `(${headType} and subtype regexp '^h[${subType}]$')`;
                 }
             },
             // 搜索待办的sql语句
@@ -540,7 +554,7 @@ function search_translator(arg) {
             // 搜索带链接的块的sql语句
             "[L]": () => {
                 help.block_type['L'] = "表示带有链接的块";
-                return `(type rlike '^[htp]$' and markdown like '%[%](%)%')`
+                return `(type regexp '^[htp]$' and markdown like '%[%](%)%')`
             },
         };
         // 解析选项, 拼接sql语句
@@ -560,7 +574,7 @@ function search_translator(arg) {
                     help.block_type[blockTypeMapping[key]] = blockHelpMap[blockTypeMapping[key]];
                 }
             }
-            sqlTypeRlike = `type rlike '^[${types}]$'`;
+            sqlTypeRlike = `type regexp '^[${types}]$'`;
         }
         return sqlTypeRlike ? `(${sqlTypeRlike})` : "true";
     }
@@ -594,6 +608,8 @@ function search_translator(arg) {
     const _buildSqlCustomPath = function() {
         let sqlCustomPath = "";
         if (!custom_path.length && !excludedPath.length) return "true";
+        // 逐段转义后仍用 % 连接, 保留路径段之间的通配语义
+        const _pathLike = (arr) => arr.map(escapeSqlLike).join('%');
         // 指定搜索路径名称
         // 1. 只有搜索路径 /笔记本1/文档1
         // 2. 指定搜索路径 加其他 /笔记本1 -h 序列号
@@ -605,7 +621,7 @@ function search_translator(arg) {
             if (keywords.length == 0) {
                 // 没有关键词时, 转成搜索文档
                 const file_name = path_arr.at(-1);
-                file_sql = `type rlike '^[d]$' and content like '%${file_name}%'`
+                file_sql = `type regexp '^[d]$' and content like '%${escapeSqlLike(file_name)}%' escape '!'`
                 help.block_type['d'] = blockHelpMap['d'];
                 keywords.push(file_name);
             }
@@ -613,15 +629,15 @@ function search_translator(arg) {
             file_sql = file_sql ? ` and (${file_sql})` : "";
             // 拼接剩余路径的sql语句
             // 1. 只搜索笔记本下面的路径
-            let sql_once = `(hpath like '%${path_arr.join('%')}%'${file_sql})`;
+            let sql_once = `(hpath like '%${_pathLike(path_arr)}%' escape '!'${file_sql})`;
             // 2. 将第一个路径当做笔记本, 剩余的当做笔记本下面的路径
             const book_arr = SYT.get_book_arr_from_name(path_arr[0]);
             path_arr.shift();
             // 有对应的笔记本id && 还有其他路径, 才搜笔记本
             // 而且笔记本可能是有多个, 都要搜出来
             if (book_arr.length) {
-                const path_sql = path_arr.length ? ` and hpath like '%${path_arr.join('%')}%'` : '';
-                sql_once += ` or (box in ("${book_arr.join('","')}")${path_sql}${file_sql})`
+                const path_sql = path_arr.length ? ` and hpath like '%${_pathLike(path_arr)}%' escape '!'` : '';
+                sql_once += ` or (box in ('${book_arr.map(escapeSqlString).join("','")}')${path_sql}${file_sql})`
             }
             sqlCustomPath += ` and (${sql_once})`;
         });
@@ -630,15 +646,15 @@ function search_translator(arg) {
             if (path_arr.length == 0) return;
             help.excludedPath.push(`*${path_arr.join('*/*')}*`);
             // 1. 只搜索笔记本下面的路径
-            let sql_once = `(hpath like '%${path_arr.join('%')}%')`;
+            let sql_once = `(hpath like '%${_pathLike(path_arr)}%' escape '!')`;
             // 2. 将第一个路径当做笔记本, 剩余的当做笔记本下面的路径
             const book_arr = SYT.get_book_arr_from_name(path_arr[0]);
             path_arr.shift();
             // 有对应的笔记本id && 还有其他路径, 才搜笔记本
             // 而且笔记本可能是有多个, 都要搜出来
             if (book_arr.length) {
-                const path_sql = path_arr.length ? ` and hpath like '%${path_arr.join('%')}%'` : '';
-                sql_once += ` or (box in ("${book_arr.join('","')}")${path_sql})`
+                const path_sql = path_arr.length ? ` and hpath like '%${_pathLike(path_arr)}%' escape '!'` : '';
+                sql_once += ` or (box in ('${book_arr.map(escapeSqlString).join("','")}')${path_sql})`
             }
             sqlCustomPath += ` and not (${sql_once})`;
         });
@@ -652,7 +668,9 @@ function search_translator(arg) {
             // 指定搜索路径为: 当前文档或子文档
             const currentDocId = SYT.get_data_id();
             if (currentDocId) {
-                sqlCurrentDoc = options.match(/K/) ? `path rlike '${currentDocId}'` : `path like '%${currentDocId}.sy'`;
+                sqlCurrentDoc = options.match(/K/)
+                    ? `path regexp '${escapeSqlString(currentDocId)}'`
+                    : `path like '%${escapeSqlLike(currentDocId)}.sy' escape '!'`;
                 help.path = options.match(/K/) ? "当前文档及子文档" : "当前文档";
             }
         } else if (custom_path_all) {
@@ -667,11 +685,11 @@ function search_translator(arg) {
                 const idx = path.indexOf('/');
                 if (idx === -1) {
                     boxPath = path;
-                    filterPath += ` or (box="${boxPath}")`;
+                    filterPath += ` or (box='${escapeSqlString(boxPath)}')`;
                 } else {
                     boxPath = path.slice(0, idx);
                     filePath = path.slice(idx);
-                    filterPath += ` or (box="${boxPath}" and path like '${filePath}%')`;
+                    filterPath += ` or (box='${escapeSqlString(boxPath)}' and path like '${escapeSqlLike(filePath)}%' escape '!')`;
                 }
             };
             if (filterPath.length) {
