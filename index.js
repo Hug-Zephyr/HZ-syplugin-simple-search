@@ -2123,13 +2123,15 @@ class SimpleSearchHZ extends siyuan.Plugin {
         for (let this_path of Object.keys(tree_json).sort()) {
             if (this_path == child_key) continue;
             // 创建一个文档节点, 名字是path
+            // 路径来自文档标题, 可能含 < > " 等字符, 拼 HTML 前必须转义
+            const path_html = escapeHtml(this_path);
             body.insertAdjacentHTML('beforeend', `
                 <div class="b3-list-item">
                 <span class="b3-list-item__toggle b3-list-item__toggle--hl">
                     <svg class="b3-list-item__arrow b3-list-item__arrow--open"><use xlink:href="#iconRight"></use></svg>
                 </span>
                 <span class="b3-list-item__graphic">📁</span>
-                <span class="b3-list-item__text ariaLabel" style="color: var(--b3-theme-on-surface)" aria-label="${this_path}">${this_path}</span>
+                <span class="b3-list-item__text ariaLabel" style="color: var(--b3-theme-on-surface)" aria-label="${path_html}">${path_html}</span>
                 </div><div class="simpleSearchListBody"></div>
             `);
             const new_body = body.lastElementChild;
