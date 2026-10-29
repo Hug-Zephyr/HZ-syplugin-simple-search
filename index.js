@@ -2585,17 +2585,23 @@ class SimpleSearchHZ extends siyuan.Plugin {
         }, 300);
     }
     sy_event_uninit() {
-        this.eventBus.off("input-search", this.inputSearchEvent);
-        this.eventBus.off("loaded-protyle-static", this.loadedProtyleStaticEvent);
-        this.eventBus.off("switch-protyle", this.switchProtyleEvent);
+        if (this._on_input_search) this.eventBus.off("input-search", this._on_input_search);
+        if (this._on_loaded_protyle_static) this.eventBus.off("loaded-protyle-static", this._on_loaded_protyle_static);
+        if (this._on_switch_protyle) this.eventBus.off("switch-protyle", this._on_switch_protyle);
     }
     sy_event_init() {
+        // 绑定结果只创建一次, on/off 必须使用同一个函数引用
+        if (!this._on_input_search) {
+            this._on_input_search = this.inputSearchEvent.bind(this);
+            this._on_loaded_protyle_static = this.loadedProtyleStaticEvent.bind(this);
+            this._on_switch_protyle = this.switchProtyleEvent.bind(this);
+        }
         // 搜索事件触发, 执行回调后, 才会发送req进行搜索
-        this.eventBus.on("input-search", this.inputSearchEvent.bind(this));
+        this.eventBus.on("input-search", this._on_input_search);
         // ✅ 编辑器内容静态加载事件
-        this.eventBus.on("loaded-protyle-static", this.loadedProtyleStaticEvent.bind(this));
+        this.eventBus.on("loaded-protyle-static", this._on_loaded_protyle_static);
         // 通过搜索结果打开, 就高亮/闪烁
-        this.eventBus.on("switch-protyle", this.switchProtyleEvent.bind(this));
+        this.eventBus.on("switch-protyle", this._on_switch_protyle);
     }
 
     load_plugin_setting(func) {
