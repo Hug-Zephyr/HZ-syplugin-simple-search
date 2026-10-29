@@ -161,7 +161,8 @@ const SYT = {
     },
     get_book_arr_from_name(name) {
         let book_id = [];
-        window.siyuan.notebooks.forEach(book => { if(!book.closed && book.name.match(name)) book_id.push(book.id); });
+        // 用字符串包含判断, 不能把路径段当正则: 名字里的 ( [ . + 等字符会误匹配或抛 SyntaxError
+        window.siyuan.notebooks.forEach(book => { if(!book.closed && book.name.includes(name)) book_id.push(book.id); });
         return book_id;
     },
     get_search_k() { // 获取当前默认搜索内容
