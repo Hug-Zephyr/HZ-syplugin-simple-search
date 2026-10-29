@@ -2358,6 +2358,12 @@ class SimpleSearchHZ extends siyuan.Plugin {
             });
         return ranges;
     }
+    // 只清除本插件注册的高亮
+    // CSS.highlights 是全局注册表, 思源和其他插件也在用(如 search-mark-*), 不能整体 clear
+    clear_highlight() {
+        CSS.highlights.delete("highlight-keywords-search-list");
+        CSS.highlights.delete("highlight-keywords-search-preview");
+    }
     // 在界面加载完毕后高亮关键词
     loadedProtyleStaticEvent(data=null) {
         mylog('加载成功, 开始高亮', data);
@@ -2368,7 +2374,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // 暂时只处理sql语句的高亮
         if (query.type != '-s') return;
 
-        CSS.highlights.clear();     // 清除上个高亮
+        this.clear_highlight();     // 清除上个高亮
 
         // 判断是否存在搜索界面
         let search_list = this.get_new_search_list();
@@ -2557,7 +2563,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
 
         mylog('点击了搜索结果, 开始高亮', data);
         this.click_res_flag = false;
-        CSS.highlights.clear();     // 清除上个高亮
+        this.clear_highlight();     // 清除上个高亮
 
         setTimeout(() => { // 这个延时是为了让光标移到对应的位置上, 要不然获取到的光标位置不对
             // 修改光标位置
@@ -2600,7 +2606,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     const searchPreviewHighlight = new Highlight(...previewRanges.flat());
                     CSS.highlights.set("highlight-keywords-search-preview", searchPreviewHighlight)
                     // 高亮后, 点击就取消高亮
-                    document.addEventListener('click', () => CSS.highlights.clear(), {once: true});
+                    document.addEventListener('click', () => this.clear_highlight(), {once: true});
                 }, has_hljs ? 300: 0);
             }
         }, 300);
