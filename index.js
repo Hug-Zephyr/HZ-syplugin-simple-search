@@ -286,6 +286,14 @@ function search_translator(arg) {
         'm': "公式块",
         'h': "标题块",
     }
+    // 需要阻止搜索的特殊输入 - 从配置中读取
+    const IGNORED_INPUTS = arg.ignoredInputs || [
+        '/',
+        '//',
+        '-',
+        '--',
+    ];
+
     const input           = arg.query;  // 输入的源内容
     const pageSearchPath  = arg.idPath; // 页面配置的搜索路径
     const pageSearchTypes = arg.types;  // 页面配置的搜索类型
@@ -415,7 +423,7 @@ function search_translator(arg) {
     const _parseInput = function() {
         const inputItems = input.split(" ");
         for (let item of inputItems) {
-            if (item === "" || item === "-") {
+            if (item === "" || item === "-" || item === "--") {
                 continue;
             } else if (item.match(/^-([kKedlptbsicmoOL]|h[1-6]*)+$/)) {
                 options += item.slice(1);
@@ -423,8 +431,8 @@ function search_translator(arg) {
                 excludedPath.push(item.slice(1));
             } else if (_parse_time(item)) {
                 continue;
-            } else if (item.startsWith('-')) {
-                excludedKeywords.push(item.slice(1));
+            } else if (item.startsWith('--')) {
+                excludedKeywords.push(item.slice(2));
             } else if (item.startsWith('/')) {
                 if (item.startsWith('//')) {
                     custom_path_all = 1;
@@ -489,7 +497,8 @@ function search_translator(arg) {
         // 去掉指定路径相关的选项
         let sqlTypes = options.replace(/[kKe]/g, "");
         let sqlTypeRlike = "";
-        if (!sqlTypes && !keywords.length && !excludedKeywords.length && custom_path.length) {
+        if (!sqlTypes && !keywords.length && !excludedKeywords.length && custom_path.some(s => /[^/]/.test(s))) {
+            // 没有指定类型, 没有关键字/排除字, 路径有效的情况下, 只搜文档
             return "true";
         }
 
@@ -798,13 +807,21 @@ function search_translator(arg) {
             return _buildExcludeQuery(keywords, excludedKeywords);
         }
         else {
-            // 没有选项, 排除词, 自定义路径, 就是用原样输入
+            // 没有选项, 排除词, 自定义路径, 用解析出的关键词拼接;
+            // 避免把单独出现的 "--" 等无效 token 原样带进搜索内容
             mylog('type: 关键词');
-            return "-w" + input;
+            return "-w" + (keywords.length ? keywords.join(" ") : input);
         }
     }
 
     //-------------------------- 主流程
+    // 处理忽略列表，禁止思源本身处理 (去掉首尾空白后再比较)
+    if (IGNORED_INPUTS.includes(input.trim())) {
+        mylog('输入在忽略列表里面，阻止搜索', input);
+        const res = _handle_ret("-w");
+        res.blocked = true; // 标记被拦截, 调用方据此跳过等待搜索结束
+        return res;
+    }
     if (input.match(/^-[wqrs]/) != null) {
         return _handle_ret(input);
     }
@@ -1150,7 +1167,9 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 #HZsimpleSearchList .b3-list-item>.b3-list-item__toggle>svg {
                     background-color: var(--b3-theme-surface);
                     border: 1px solid var(--b3-theme-on-surface-light);
-                    padding: 2px;
+                    padding: 0px;
+                    border-radius: 4px;
+                    margin-right: 4px;
                 }
 
                 /*文档的折叠按钮, 图标要比虚线高一层 */
@@ -1168,7 +1187,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     content: "";
                     visibility: visible;
                     position: absolute;
-                    left: 21px;
+                    left: 19px;
                     top: -7px;
                     width: 18px;
                     height: calc(100% - 7px);
@@ -1237,6 +1256,31 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 </div>
             `
         }
+        const get_html_history_auto_mode = function (history_auto) {
+            let is_close = history_auto == "close" ? "checked" : "";
+            let is_smart = history_auto == "smart" ? "checked" : "";
+            let is_always = history_auto == "always" ? "checked" : "";
+            return `
+                <div class="fn__flex b3-label">
+                    ${get_html_cfg_name('自动显示历史记录', '在搜索框输入内容时自动显示匹配到的历史记录<br>关闭: 不自动显示<br>智能显示: 完全匹配/完全匹配不到时不显示<br>总是显示: 不管输入什么都触发显示')}
+                    <span class="fn__space"></span>
+                    <div class="radio-group" id="simpleSearchHistoryAutoMode">
+                        <div class="radio-item">
+                            <input type="radio" id="simpleSearchHistoryAutoClose" name="historyAutoMode" ${is_close}>
+                            <label for="simpleSearchHistoryAutoClose">关闭</label>
+                        </div>
+                        <div class="radio-item">
+                            <input type="radio" id="simpleSearchHistoryAutoSmart" name="historyAutoMode" ${is_smart}>
+                            <label for="simpleSearchHistoryAutoSmart">智能显示</label>
+                        </div>
+                        <div class="radio-item">
+                            <input type="radio" id="simpleSearchHistoryAutoAlways" name="historyAutoMode" ${is_always}>
+                            <label for="simpleSearchHistoryAutoAlways">总是显示</label>
+                        </div>
+                    </div>
+                </div>
+            `
+        }
         const get_html_cursor_style = function (cursor_style) {
             let is_none   = cursor_style == "none" ? "checked" : "";
             let is_before = cursor_style == "before" ? "checked" : "";
@@ -1282,8 +1326,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         return `<div id="simpleSearchAssistSetting">
             <span>(温馨提示: 修改后会自动保存; 拖动方框右下角可以调整显示区域)</span>
             ${get_html_head('🕒', '历史记录')}
-            ${get_html_setting_once("", "接管历史记录", `开启后:<br>1.可通过${this.code('alt+↓')}切换历史记录列表显示与隐藏, 以及打开自动显示的开关;<br>2.可通过${this.code('alt+↑')}隐藏历史记录, 以及关掉自动显示的开关;<br>3.依旧可以通过点击, 正常使用思源原生的历史记录功能;<br>关闭后: 不影响自动显示的功能; `, get_html_check_sw("simpleSearchReplaceHistory", g_setting.replace_history))}
-            ${get_html_setting_once("", "自动显示历史记录", "开启后, 在搜索框输入内容会先匹配搜索历史, 点击/回车后才会触发真正的搜索<br>备注: 完全匹配到/完全没匹配到的时候, 不会自动显示", get_html_check_sw("simpleSearchHistoryAuto", g_setting.history_auto))}
+            ${get_html_setting_once("", "接管历史记录", `开启后:<br>1.可通过${this.code('alt+↓')}切换历史记录列表显示与隐藏;<br>2.可通过${this.code('alt+↑')}隐藏历史记录, 并将自动显示切换为"关闭";<br>3.依旧可以通过点击, 正常使用思源原生的历史记录功能;<br>关闭后: 不影响自动显示的功能; `, get_html_check_sw("simpleSearchReplaceHistory", g_setting.replace_history))}
+            ${get_html_history_auto_mode(g_setting.history_auto)}
             ${get_html_head('🔍', '搜索结果相关')}
             ${get_html_setting_once("", "接管搜索结果 - 按文档分组时生效", "开启后, 搜索结果将以新的样式进行显示", get_html_check_sw("simpleSearchTreeSw", g_setting.replace_search_res))}
             ${get_html_restree_style(g_setting.restree_style)}
@@ -1293,6 +1337,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
             ${get_html_setting_once("", "高亮关键词", "通过 双击/回车 跳转到对应位置后, 高亮搜索的关键词", get_html_check_sw("simpleSearchJumpHighlight", g_setting.is_highlight_open))}
             ${get_html_setting_once("", "闪烁当前块", "通过 双击/回车 跳转到对应位置后, 闪烁当前的块<br>备注: 思源官方在v3.4.1版本已支持, 建议关闭", get_html_check_sw("simpleSearchJumpBlink", g_setting.is_blink_open))}
             ${get_html_cursor_style(g_setting.cursor_position)}
+            ${get_html_head('🚫', '搜索拦截')}
+            ${get_html_setting_once("", "阻止搜索的特殊输入", "当输入框内容完全匹配以下任一值时, 阻止搜索(多个值用英文逗号分隔)", `<textarea class="b3-text-field fn__flex-1" id="simpleSearchIgnoredInputs" rows="2" placeholder="例如: /, //, -, --">${escapeHtml((g_setting.ignored_inputs || []).join(", "))}</textarea>`)}
         </div>`;
         // ${get_html_setting_once("", "树样式同步至文档树", "开启后, 文档树和大纲会修改成与搜索结果相同的样式", get_html_check_sw("simpleSearchSyncTree", g_setting.sync_file))}
     }
@@ -1303,7 +1349,6 @@ class SimpleSearchHZ extends siyuan.Plugin {
         text_area.innerHTML = this.get_plugin_setting_html();
 
         const key_map = { // id -> this.g_setting.key
-            simpleSearchHistoryAuto    : 'history_auto',        // 自动显示历史记录
             simpleSearchReplaceHistory : 'replace_history',     // 取代历史记录
             simpleSearchTreeSw         : 'replace_search_res',  // 接管搜索结果
             simpleSearchSyncTree       : 'sync_file',           // 同步文档树样式
@@ -1352,8 +1397,14 @@ class SimpleSearchHZ extends siyuan.Plugin {
             this.g_setting.cursor_position = cursor_type;
             this.save_plugin_setting();
         }
+        // 历史记录自动显示模式
+        const handle_history_auto_mode = (mode, is_check) => {
+            if (!is_check) return;
+            if (this.g_setting.history_auto == mode) return;
+            this.g_setting.history_auto = mode;
+            this.save_plugin_setting();
+        }
         const func_map = {
-            simpleSearchHistoryAuto    : handle_switch_state_change,
             simpleSearchReplaceHistory : handle_switch_state_change,
             simpleSearchTreeSw         : handle_search_restree,
             simpleSearchSyncTree       : handle_search_restree,
@@ -1369,10 +1420,27 @@ class SimpleSearchHZ extends siyuan.Plugin {
             simpleSearchCursorBefore   : handle_cursor_position,
             simpleSearchCursorSelect   : handle_cursor_position,
             simpleSearchCursorAfter    : handle_cursor_position,
+            simpleSearchHistoryAutoClose: handle_history_auto_mode,
+            simpleSearchHistoryAutoSmart: handle_history_auto_mode,
+            simpleSearchHistoryAutoAlways: handle_history_auto_mode,
+        }
+        // 处理文本输入框的变化
+        const handle_ignored_inputs_change = (value) => {
+            const ignoredInputs = value.split(',').map(s => s.trim()).filter(s => s);
+            this.g_setting.ignored_inputs = ignoredInputs;
+            this.save_plugin_setting();
         }
         text_area.addEventListener('change', (event) => {
             const id = event.target.id;
-            func_map[id](key_map[id], event.target.checked);
+            if (id === 'simpleSearchIgnoredInputs') {
+                handle_ignored_inputs_change(event.target.value);
+            } else if (key_map[id]) {
+                func_map[id](key_map[id], event.target.checked);
+            } else if (func_map[id]) {
+                // 处理历史记录自动显示模式 (close/smart/always)
+                const mode = id.replace('simpleSearchHistoryAuto', '').toLowerCase();
+                func_map[id](mode, event.target.checked);
+            }
         });
     }
     // 嵌入 信息显示框
@@ -1394,7 +1462,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
     code(str) {return `<span class="fn__code">${str}</span>`};
     get_help_info_html() {
         return `<div id="simpleSearchHelpTable">
-        <span style="font-size: 16px; font-weight:bold">简搜插件关键字: </span><span> (温馨提示: 拖动方框右下角可以调整显示区域)</span>
+        <span style="font-size: 16px; font-weight:bold">简搜插件指令速查手册: </span><span> (温馨提示: 拖动方框右下角可以调整显示区域)</span>
         <table><tbody>
         <tr>
             <td colspan="1">${this.strong(" 搜索方式: ")}</td>
@@ -1431,7 +1499,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         <tr>
             <td colspan="1" rowspan="2">${this.strong(" 路径过滤: ")}</td>
             <td colspan="2">${this.code("//")}:在所有文档里面搜索</td>
-            <td colspan="2">${this.code("/")}:过滤文档路径</td>
+            <td>${this.code("/")}:过滤文档路径</td>
+            <td>${this.code("-/")}:排除路径</td>
         </tr>
         <tr>
             <td colspan="2">${this.code("-k")}:小写k, 在当前文档搜索</td>
@@ -1463,7 +1532,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         </tr>
         <tr>
             <td colspan="1" rowspan="2">${this.strong(" 其他: ")}</td>
-            <td colspan="4">${this.code("-")}"+要排除的关键词，排除指定关键词</td></tr>
+            <td colspan="4">${this.code("--")}"+要排除的关键词，排除指定关键词</td></tr>
         </tr>
         <tr>
             <td colspan="4">${this.code("-e")}":文档模式, 在符合条件的文档下进行搜索</td>
@@ -1520,7 +1589,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // 2. 增加帮助按钮
         icon_parent.insertAdjacentHTML('beforeend', `
             <span class="fn__space"></span>
-            <span id="simpleSearchHelp" aria-label="简搜: 点击显示插件关键词" class="block__icon ariaLabel" data-position="9south">
+            <span id="simpleSearchHelp" aria-label="简搜: 点击显示指令速查手册" class="block__icon ariaLabel" data-position="9south">
                 <svg><use xlink:href="#iconHelp"></use></svg>
             </span>
         `);
@@ -1537,13 +1606,13 @@ class SimpleSearchHZ extends siyuan.Plugin {
         const save_ele = this.get_ele('[data-type="saveCriterion"]');
         save_ele.insertAdjacentHTML('beforebegin', `
             <div id="simpleSearchQuickJump" class="${this.g_setting.assist_sw ? "" : 'fn__none'}" >
-            <button id="simpleSearchGotoReadme" class="b3-button b3-button--small b3-button--outline fn__flex-center ariaLabel" aria-label="简搜: 点击跳转至插件的readme">帮助与反馈</button>
+            <button id="simpleSearchGotoReadme" class="b3-button b3-button--small b3-button--outline fn__flex-center ariaLabel" aria-label="简搜: 点击跳转至插件的readme">跳转至手册</button>
             <span class="fn__space"></span>
             <button id="simpleSearchDisplayTreeSetting" class="b3-button b3-button--small b3-button--outline fn__flex-center ariaLabel" aria-label="简搜: 点击打开插件的设置页面">简搜设置</button>
             <span class="fn__space"></span>
             </div>
         `); 
-        // const help_link = '<a href="https://gitee.com/Hug_Zephyr/HZ-syplugin-simple-search/blob/master/README.md">帮助与反馈</a>';
+        // const help_link = '<a href="https://gitee.com/Hug_Zephyr/HZ-syplugin-simple-search/blob/master/README.md">跳转至手册</a>';
         this.get_ele('#simpleSearchGotoReadme')?.addEventListener('click', (event) => {
             event.stopPropagation();  // 停止事件传播
             window.open('https://gitee.com/Hug_Zephyr/HZ-syplugin-simple-search/blob/master/README.md', '_blank');
@@ -1619,6 +1688,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.hidden_search_history_list();
         const history_ul = this.get_search_history_ul();
         if (!history_ul) return;
+        // 如果没有历史记录，直接返回（保持隐藏状态）
+        if (!history.length) return;
         const rect = this.get_search_input()?.getBoundingClientRect();
         for (let i = 0; i < history.length; i++) {
             let html_val = history[i];
@@ -1642,12 +1713,20 @@ class SimpleSearchHZ extends siyuan.Plugin {
     show_search_history_list(history) {
         const input_val = escapeHtml(this.get_search_input().value);
         const input_html = `<span class="HZ-search-history-highlight">${input_val}</span>`;
-        // 完全没有匹配到历史记录 || 完全匹配到历史记录 的时候, 关掉历史记录, 触发原生搜索事件
-        if (!history.length || history.includes(input_html)) {
-            // console.log('完全匹配到/完全没匹配到, 触发原生搜索事件');
+        // 关闭模式: 不显示历史记录
+        if (this.g_setting.history_auto === 'close') {
             this.search_history_dispatch_input();
             return;
         }
+        // 智能显示模式: 完全没有匹配到历史记录 || 完全匹配到历史记录 的时候, 关掉历史记录, 触发原生搜索事件
+        if (this.g_setting.history_auto === 'smart') {
+            if (!history.length || history.includes(input_html)) {
+                // console.log('完全匹配到/完全没匹配到, 触发原生搜索事件');
+                this.search_history_dispatch_input();
+                return;
+            }
+        }
+        // 总是显示模式: 不管输入什么都显示历史记录
         // console.log('模糊匹配, 触发历史记录列表');
         // 在第一位加一个当前输入内容
         if (input_val) {
@@ -1667,7 +1746,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // 英文触发顺序: input
         let timerId = 0;
         inputElement?.addEventListener('compositionend', (event) => {
-            if (!this.g_setting.history_auto) return;
+            if (this.g_setting.history_auto === 'close') return;
             // 因为思源原生也会监听compositionend事件, 然后触发与原生input一样的逻辑
             // 如果不阻止, 相当于还是触发了原生input事件, 这样的话, 下面的接管的逻辑就不管用了
             // 所以要阻止, 然后触发input, 由下面的逻辑判断是否触发原生input
@@ -1676,7 +1755,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         }, true);
         inputElement?.addEventListener('input', (event) => {
             // console.log('input事件触发', event.inputType, event.target.value, this.history_input_flag, event.isComposing, this.is_searching);
-            if (!this.g_setting.history_auto) return;
+            if (this.g_setting.history_auto === 'close') return;
             if (this.is_searching) {
                 // console.log('上次触发的搜索还没有结束, 不处理这次的input, 走思源原生input逻辑');
                 return;
@@ -1712,8 +1791,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 if (!this.g_setting.replace_history) return;
                 if (type == 'arrowup') {
                     event.stopPropagation();
-                    if (this.g_setting.history_auto) {
-                        this.g_setting.history_auto = false;
+                    if (this.g_setting.history_auto !== 'close') {
+                        this.g_setting.history_auto = 'close';
                         this.save_plugin_setting();
                         this.search_history_dispatch_input();
                         if (this.get_ele('#simpleSearchAssistSetting')) this.show_plugin_setting();
@@ -1721,8 +1800,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 }
                 else if (type == 'arrowdown') {
                     event.stopPropagation();
-                    if (!this.g_setting.history_auto) {
-                        this.g_setting.history_auto = true;
+                    if (this.g_setting.history_auto === 'close') {
+                        this.g_setting.history_auto = 'always';
                         this.save_plugin_setting();
                         if (this.get_ele('#simpleSearchAssistSetting')) this.show_plugin_setting();
                     }
@@ -1816,7 +1895,9 @@ class SimpleSearchHZ extends siyuan.Plugin {
                         idx = (idx+length) % length; 
                         // 直到找到下一个没有被隐藏的节点
                         if (!ele_list[idx].closest('.simpleSearchListBody.fn__none')) {
+                            this._isKeyboardNav = true;
                             ele_list[idx].click();
+                            setTimeout(() => this._isKeyboardNav = false, 0);
                             break;
                         }
                     }
@@ -1891,7 +1972,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
             "-s": {id:2, aria:"搜索方式: SQL", icon:"#iconDatabase"},
             "-r": {id:3, aria:"搜索方式: 正则表达式", icon:"#iconRegex"},
         }
-        // 转换搜索内容
+        // 转换搜索内容, 传入 ignoredInputs 配置
+        query_arg.ignoredInputs = this.g_setting.ignored_inputs;
         this.query = search_translator(query_arg);
         const res = this.query;
         // 根据转换后的内容, 设置相应的变量
@@ -2055,10 +2137,12 @@ class SimpleSearchHZ extends siyuan.Plugin {
             if (!src_ele) return;
             new_tree.querySelectorAll('.b3-list-item--focus').forEach(ele => ele.classList.remove('b3-list-item--focus'));
             new_ele.classList.add('b3-list-item--focus');
-            new_ele.scrollIntoView({
-                behavior: 'auto', // 不能用平滑滚动, 如果快速切换的时候, 会抖动
-                block: 'center'   // 或 'start', 'center', 'end'
-            })
+            if (this._isKeyboardNav) {
+                new_ele.scrollIntoView({
+                    behavior: 'auto',
+                    block: 'center'
+                });
+            }
             // 创建新事件，显式复制所有重要属性
             const newEvent = new MouseEvent('click', {
                 bubbles: true,
@@ -2215,6 +2299,12 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // 2.1 替换原有搜索条件
         this.replace_src_search(data.detail.config);
         mylog("替换后参数", data.detail.config);
+        // 输入被"阻止搜索的特殊输入"拦截时, 不会有正常的搜索完成回调,
+        // 这里直接复位, 避免 is_searching 一直为 true 导致后续历史记录不自动显示
+        if (this.query?.blocked) {
+            this.is_searching = false;
+            return;
+        }
         // 2.2 显示解析结果
         this.update_analysis_result();
         // 3. 搜索结束后触发
@@ -2516,6 +2606,10 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 if ('restree_cfg' in settingFile) delete settingFile['restree_cfg'];
                 if ('is_jump_to_match' in settingFile) delete settingFile['is_jump_to_match'];
                 if (settingFile['restree_style'] == 'native') delete settingFile['restree_style'];
+                // 兼容旧版本: history_auto 从布尔值迁移到字符串枚举
+                if (typeof settingFile['history_auto'] === 'boolean') {
+                    settingFile['history_auto'] = settingFile['history_auto'] ? 'smart' : 'close';
+                }
                 Object.assign(this.g_setting, settingFile);
             }catch(e){
                 mylog("og-fdb载入配置时发生错误, 使用默认配置", e);
@@ -2542,7 +2636,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.query        = {type:"", val:"", keywords:[], help:{}}; // 解析后的内容 {type: 搜索类型, val: 搜索内容, keywords: 关键词}
         this.g_setting    = {
             assist_sw         : true,           // 辅助信息显示框 是否显示
-            history_auto      : true,           // 自动显示历史记录
+            history_auto      : 'smart',        // 自动显示历史记录: close-关闭, smart-智能显示, always-总是显示
             replace_history   : true,           // 取代历史记录
             replace_search_res: true,           // 是否接管搜索结果
             restree_style     : "native_tree",  // 文档树样式: 原生列表:native_list, 原生树:native_tree, 多彩:colorful, ediary
@@ -2552,6 +2646,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             is_highlight_open : true,           // 通过 双击/回车 跳转到对应位置后, 高亮搜索的关键词
             is_blink_open     : false,          // 通过 双击/回车 跳转到对应位置后, 闪烁当前的块
             cursor_position   : "after",        // 通过 双击/回车 跳转到对应位置后, 光标效果: 不处理:none, 之前:before, 选中:select, 之后:after
+            ignored_inputs    : ["/", "//", "-", "--"], // 需要阻止搜索的特殊输入
         }
         this.load_plugin_setting(() => {
             this.save_plugin_setting();
