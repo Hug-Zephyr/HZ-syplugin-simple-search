@@ -1269,232 +1269,132 @@ class SimpleSearchHZ extends siyuan.Plugin {
         }
         this.css = js_insert_css(css);
     }
-    get_plugin_setting_html() {
-        const get_html_head = function (icon, str) {
-            return `<div class="section-title"><i>${icon}</i> ${str}</div>`
-        }
-        const get_html_cfg_name = function (name, desc) {
-            return `<div class="fn__flex-1">${name}<div class="b3-label__text">${desc}</div></div>`
-        }
-        const get_html_check_sw = function (id, sw) {
-            return `<input class="b3-switch fn__flex-center" id="${id}" type="checkbox" ${sw ? 'checked=""' : ''}>`
-        }
-        const get_html_restree_style = function (tree_style) {
-            let is_native_list = tree_style == "native_list" ? "checked" : "";
-            let is_native_tree = tree_style == "native_tree" ? "checked" : "";
-            let is_colorful    = tree_style == "colorful" ? "checked" : "";
-            let is_ediary      = tree_style == "ediary" ? "checked" : "";
-            return `
-                <div class="fn__flex b3-label">
-                    ${get_html_cfg_name('搜索结果样式 - <a href="https://ld246.com/article/1759408628406">了解更多</a>', '选择搜索结果的显示风格, 全部风格都会按照文档路径名进行排序')}
-                    <span class="fn__space"></span>
-                    <div class="radio-group" id="simpleSearchTreeStyle">
-                        <div class="radio-item">
-                            <input type="radio" id="simpleSearchStyleNativeList" name="treeStyle" ${is_native_list}>
-                            <label for="simpleSearchStyleNativeList">原生列表</label>
-                        </div>
-                        <div class="radio-item">
-                            <input type="radio" id="simpleSearchStyleNativeTree" name="treeStyle" ${is_native_tree}>
-                            <label for="simpleSearchStyleNativeTree">原生树</label>
-                        </div>
-                        <div class="radio-item">
-                            <input type="radio" id="simpleSearchStyleColorful" name="treeStyle" ${is_colorful}>
-                            <label for="simpleSearchStyleColorful">多彩树</label>
-                        </div>
-                        <div class="radio-item">
-                            <input type="radio" id="simpleSearchStyleEdiary" name="treeStyle" ${is_ediary}>
-                            <label for="simpleSearchStyleEdiary">eDiary树</label>
-                        </div>
-                    </div>
-                </div>
-            `
-        }
-        const get_html_history_auto_mode = function (history_auto) {
-            let is_close = history_auto == "close" ? "checked" : "";
-            let is_smart = history_auto == "smart" ? "checked" : "";
-            let is_always = history_auto == "always" ? "checked" : "";
-            return `
-                <div class="fn__flex b3-label">
-                    ${get_html_cfg_name('自动显示历史记录', '在搜索框输入内容时自动显示匹配到的历史记录<br>关闭: 不自动显示<br>智能显示: 完全匹配/完全匹配不到时不显示<br>总是显示: 不管输入什么都触发显示')}
-                    <span class="fn__space"></span>
-                    <div class="radio-group" id="simpleSearchHistoryAutoMode">
-                        <div class="radio-item">
-                            <input type="radio" id="simpleSearchHistoryAutoClose" name="historyAutoMode" ${is_close}>
-                            <label for="simpleSearchHistoryAutoClose">关闭</label>
-                        </div>
-                        <div class="radio-item">
-                            <input type="radio" id="simpleSearchHistoryAutoSmart" name="historyAutoMode" ${is_smart}>
-                            <label for="simpleSearchHistoryAutoSmart">智能显示</label>
-                        </div>
-                        <div class="radio-item">
-                            <input type="radio" id="simpleSearchHistoryAutoAlways" name="historyAutoMode" ${is_always}>
-                            <label for="simpleSearchHistoryAutoAlways">总是显示</label>
-                        </div>
-                    </div>
-                </div>
-            `
-        }
-        const get_html_cursor_style = function (cursor_style) {
-            let is_none   = cursor_style == "none" ? "checked" : "";
-            let is_before = cursor_style == "before" ? "checked" : "";
-            let is_select = cursor_style == "select" ? "checked" : "";
-            let is_after  = cursor_style == "after" ? "checked" : "";
-            return `
-                <div class="fn__flex b3-label">
-                    ${get_html_cfg_name('光标定位样式', '通过 双击/回车 跳转到对应位置后, 将光标定位至第一个匹配到的位置')}
-                    <span class="fn__space"></span>
-                    <div class="radio-group" id="simpleSearchCursorStyle">
-                        <div class="radio-item">
-                            <input type="radio" id="simpleSearchCursorNone" name="cursorStyle" ${is_none}>
-                            <label for="simpleSearchCursorNone">不定位</label>
-                        </div>
-                        <div class="radio-item">
-                            <input type="radio" id="simpleSearchCursorBefore" name="cursorStyle" ${is_before}>
-                            <label for="simpleSearchCursorBefore">关键词之前</label>
-                        </div>
-                        <div class="radio-item">
-                            <input type="radio" id="simpleSearchCursorSelect" name="cursorStyle" ${is_select}>
-                            <label for="simpleSearchCursorSelect">选中关键词</label>
-                        </div>
-                        <div class="radio-item">
-                            <input type="radio" id="simpleSearchCursorAfter" name="cursorStyle" ${is_after}>
-                            <label for="simpleSearchCursorAfter">关键词之后</label>
-                        </div>
-                    </div>
-                </div>
-            `
-        }
-        const get_html_setting_once = function(id, name, desc, sw_html) {
-            id = id ? `id = "${id}"` : ""
-            return `
-                <label ${id} class="fn__flex b3-label">
-                    ${get_html_cfg_name(name, desc)}
-                    <span class="fn__space"></span>
-                    ${sw_html}
-                </label>
-            `
-        }
+    // 打开插件的设置面板(左侧分类 + 右侧配置)
+    openSetting() {
         const g_setting = this.g_setting;
-        //生成当前设置
-        return `<div id="simpleSearchAssistSetting">
-            <span>(温馨提示: 修改后会自动保存; 拖动方框右下角可以调整显示区域)</span>
-            ${get_html_head('🕒', '历史记录')}
-            ${get_html_setting_once("", "接管历史记录", `开启后:<br>1.可通过${this.code('alt+↓')}切换历史记录列表显示与隐藏;<br>2.可通过${this.code('alt+↑')}隐藏历史记录, 并将自动显示切换为"关闭";<br>3.依旧可以通过点击, 正常使用思源原生的历史记录功能;<br>关闭后: 不影响自动显示的功能; `, get_html_check_sw("simpleSearchReplaceHistory", g_setting.replace_history))}
-            ${get_html_history_auto_mode(g_setting.history_auto)}
-            ${get_html_head('🔍', '搜索结果相关')}
-            ${get_html_setting_once("", "接管搜索结果 - 按文档分组时生效", "开启后, 搜索结果将以新的样式进行显示", get_html_check_sw("simpleSearchTreeSw", g_setting.replace_search_res))}
-            ${get_html_restree_style(g_setting.restree_style)}
-            ${get_html_setting_once("", "搜索结果优先 - 树结构时生效", "开启后，搜索结果将显示在同级分组的上面", get_html_check_sw("simpleSearchResTop", g_setting.search_res_top))}
-            ${get_html_setting_once("", "显示全路径 - 树结构时生效", "开启后, 分组的文档将显示全路径, 而不是只有文档名", get_html_check_sw("simpleSearchAllPath", g_setting.restree_all_path))}
-            ${get_html_head('🎯', '搜索结果跳转后效果 - 开启接管搜索结果时生效')}
-            ${get_html_setting_once("", "高亮关键词", "通过 双击/回车 跳转到对应位置后, 高亮搜索的关键词", get_html_check_sw("simpleSearchJumpHighlight", g_setting.is_highlight_open))}
-            ${get_html_setting_once("", "闪烁当前块", "通过 双击/回车 跳转到对应位置后, 闪烁当前的块<br>备注: 思源官方在v3.4.1版本已支持, 建议关闭", get_html_check_sw("simpleSearchJumpBlink", g_setting.is_blink_open))}
-            ${get_html_cursor_style(g_setting.cursor_position)}
-            ${get_html_head('🚫', '搜索拦截')}
-            ${get_html_setting_once("", "阻止搜索的特殊输入", "当输入框内容完全匹配以下任一值时, 阻止搜索(多个值用英文逗号分隔)", `<textarea class="b3-text-field fn__flex-1" id="simpleSearchIgnoredInputs" rows="2" placeholder="例如: /, //, -, --">${escapeHtml((g_setting.ignored_inputs || []).join(", "))}</textarea>`)}
-        </div>`;
-        // ${get_html_setting_once("", "树样式同步至文档树", "开启后, 文档树和大纲会修改成与搜索结果相同的样式", get_html_check_sw("simpleSearchSyncTree", g_setting.sync_file))}
-    }
-    // 显示
-    show_plugin_setting() {
-        const text_area = this.get_ele('#simpleSearchTextarea');
-        if (!text_area) return;
-        text_area.innerHTML = this.get_plugin_setting_html();
+        const categories = [
+            {id: 'history', icon: '🕒', name: '历史记录'},
+            {id: 'search',  icon: '🔍', name: '搜索结果'},
+            {id: 'jump',    icon: '🎯', name: '跳转效果'},
+            {id: 'block',   icon: '🚫', name: '搜索拦截'},
+        ];
+        const row_switch = (key, title, desc) => `
+            <label class="fn__flex b3-label config-item">
+                <div class="fn__flex-1">
+                    <div class="config-name">${title}</div>
+                    ${desc ? `<div class="b3-label__text">${desc}</div>` : ""}
+                </div>
+                <span class="fn__space"></span>
+                <input class="b3-switch fn__flex-center" type="checkbox" data-key="${key}" ${g_setting[key] ? "checked" : ""}>
+            </label>`;
+        const row_select = (key, title, desc, options) => `
+            <div class="fn__flex b3-label config-item">
+                <div class="fn__flex-1">
+                    <div class="config-name">${title}</div>
+                    ${desc ? `<div class="b3-label__text">${desc}</div>` : ""}
+                </div>
+                <span class="fn__space"></span>
+                <select class="b3-select fn__flex-center fn__size200" data-key="${key}">
+                    ${options.map(opt => `<option value="${opt.value}"${g_setting[key] === opt.value ? " selected" : ""}>${opt.label}</option>`).join("")}
+                </select>
+            </div>`;
+        const row_textarea = (key, title, desc, value) => `
+            <div class="b3-label config-item">
+                <div class="config-name">${title}</div>
+                ${desc ? `<div class="b3-label__text">${desc}</div>` : ""}
+                <div class="fn__hr"></div>
+                <textarea class="b3-text-field fn__block" rows="2" placeholder="例如: /, //, -, --" data-key="${key}">${escapeHtml(value)}</textarea>
+            </div>`;
 
-        const key_map = { // id -> this.g_setting.key
-            simpleSearchReplaceHistory : 'replace_history',     // 取代历史记录
-            simpleSearchTreeSw         : 'replace_search_res',  // 接管搜索结果
-            simpleSearchSyncTree       : 'sync_file',           // 同步文档树样式
-            simpleSearchResTop         : 'search_res_top',      // 搜索结果优先
-            simpleSearchAllPath        : 'restree_all_path',    // 显示全路径
-            simpleSearchStyleNativeList: 'native_list',         // 树样式: 原生列表
-            simpleSearchStyleNativeTree: 'native_tree',         // 树样式: 原生树
-            simpleSearchStyleColorful  : 'colorful',            // 树样式: 多彩
-            simpleSearchStyleEdiary    : 'ediary',              // 树样式: eDiary风格
-            simpleSearchJumpHighlight  : 'is_highlight_open',   // 跳转后, 高亮关键词
-            simpleSearchJumpBlink      : 'is_blink_open',       // 跳转后, 闪烁当前块
-            simpleSearchCursorNone     : 'none',                // 跳转后, 移动光标至匹配的位置
-            simpleSearchCursorBefore   : 'before',              // 跳转后, 移动光标至匹配的位置
-            simpleSearchCursorSelect   : 'select',              // 跳转后, 移动光标至匹配的位置
-            simpleSearchCursorAfter    : 'after',               // 跳转后, 移动光标至匹配的位置
-        }
-        // 仅处理开关变化
-        const handle_switch_state_change = (key, is_check) => {
-            // 赋值, 保存到文件, 更新css, 更新搜索结果
-            if (this.g_setting[key] == is_check) return;
-            this.g_setting[key] = is_check;
-            this.save_plugin_setting();
+        const nav_html = categories.map(cat => `
+            <div class="b3-list-item" data-cat="${cat.id}">
+                <span class="b3-list-item__graphic">${cat.icon}</span>
+                <span class="b3-list-item__text">${cat.name}</span>
+            </div>`).join("");
+
+        const content = `
+        <div class="b3-dialog__content simpleSearchSetting" style="padding:0;display:flex;flex:1;overflow:hidden;">
+            <div class="simpleSearchSettingNav b3-list b3-list--background">${nav_html}</div>
+            <div class="simpleSearchSettingPanes fn__flex-1" style="overflow:auto;">
+                <div class="simpleSearchSettingPane" data-pane="history">
+                    ${row_switch('replace_history', '接管历史记录', '开启后:<br>1.可通过 alt+↓ 切换历史记录列表显示与隐藏;<br>2.可通过 alt+↑ 隐藏历史记录, 并将自动显示切换为"关闭";<br>3.依旧可以通过点击, 正常使用思源原生的历史记录功能;<br>关闭后: 不影响自动显示的功能;')}
+                    ${row_select('history_auto', '自动显示历史记录', '在搜索框输入内容时自动显示匹配到的历史记录<br>关闭: 不自动显示<br>智能显示: 完全匹配/完全匹配不到时不显示<br>总是显示: 不管输入什么都触发显示', [
+                        {value: 'close',  label: '关闭'},
+                        {value: 'smart',  label: '智能显示'},
+                        {value: 'always', label: '总是显示'},
+                    ])}
+                </div>
+                <div class="simpleSearchSettingPane" data-pane="search">
+                    ${row_switch('replace_search_res', '接管搜索结果', '开启后, 搜索结果将以新的样式进行显示(按文档分组时生效)')}
+                    ${row_select('restree_style', '搜索结果样式', '选择搜索结果的显示风格, 全部风格都会按照文档路径名进行排序<br><a href="https://ld246.com/article/1759408628406" target="_blank">了解更多</a>', [
+                        {value: 'native_list', label: '原生列表'},
+                        {value: 'native_tree', label: '原生树'},
+                        {value: 'colorful',    label: '多彩树'},
+                        {value: 'ediary',      label: 'eDiary树'},
+                    ])}
+                    ${row_switch('search_res_top', '搜索结果优先', '开启后, 搜索结果将显示在同级分组的上面(树结构时生效)')}
+                    ${row_switch('restree_all_path', '显示全路径', '开启后, 分组的文档将显示全路径, 而不是只有文档名(树结构时生效)')}
+                </div>
+                <div class="simpleSearchSettingPane" data-pane="jump">
+                    ${row_switch('is_highlight_open', '高亮关键词', '通过 双击/回车 跳转到对应位置后, 高亮搜索的关键词')}
+                    ${row_switch('is_blink_open', '闪烁当前块', '通过 双击/回车 跳转到对应位置后, 闪烁当前的块<br>备注: 思源官方在 v3.4.1 版本已支持, 建议关闭')}
+                    ${row_select('cursor_position', '光标定位样式', '通过 双击/回车 跳转到对应位置后, 将光标定位至第一个匹配到的位置', [
+                        {value: 'none',   label: '不处理'},
+                        {value: 'before', label: '关键词之前'},
+                        {value: 'select', label: '选中关键词'},
+                        {value: 'after',  label: '关键词之后'},
+                    ])}
+                </div>
+                <div class="simpleSearchSettingPane" data-pane="block">
+                    ${row_textarea('ignored_inputs', '阻止搜索的特殊输入', '当输入框内容完全匹配以下任一值时, 阻止搜索(多个值用英文逗号分隔)', (g_setting.ignored_inputs || []).join(", "))}
+                </div>
+            </div>
+        </div>
+        <div class="b3-dialog__action">
+            <button class="b3-button b3-button--cancel">取消</button>
+            <div class="fn__space"></div>
+            <button class="b3-button b3-button--text">保存</button>
+        </div>`;
+
+        const dialog = new siyuan.Dialog({
+            title: this.displayName || this.name,
+            content: content,
+            width: '820px',
+            height: '70vh',
+        });
+
+        const nav_items = dialog.element.querySelectorAll('.simpleSearchSettingNav .b3-list-item');
+        const panes = dialog.element.querySelectorAll('.simpleSearchSettingPane');
+        const select_cat = (cat) => {
+            nav_items.forEach(item => item.classList.toggle('b3-list-item--focus', item.dataset.cat === cat));
+            panes.forEach(pane => pane.classList.toggle('fn__none', pane.dataset.pane !== cat));
         };
-        // 搜索结果 相关开关
-        const handle_search_restree = (key, is_check) => {
-            handle_switch_state_change(key, is_check)
-            // 更新搜索结果
-            this.init_css_style();
-            this.show_search_res();
-        }
-        // 搜索结果树 竖线样式 相关开关
-        const handle_restree_style = (style_type, is_check) => {
-            if (!is_check) return;
-            // 赋值, 保存到文件, 更新css, 更新搜索结果
-            if (this.g_setting.restree_style == style_type) return;
-            this.g_setting.restree_style = style_type;
-            this.save_plugin_setting();
-            this.init_css_style();
-            this.show_search_res();
-        }
-        // 光标定位
-        const handle_cursor_position = (cursor_type, is_check) => {
-            if (!is_check) return;
-            // 赋值, 保存到文件
-            if (this.g_setting.cursor_position == cursor_type) return;
-            this.g_setting.cursor_position = cursor_type;
-            this.save_plugin_setting();
-        }
-        // 历史记录自动显示模式
-        const handle_history_auto_mode = (mode, is_check) => {
-            if (!is_check) return;
-            if (this.g_setting.history_auto == mode) return;
-            this.g_setting.history_auto = mode;
-            this.save_plugin_setting();
-        }
-        const func_map = {
-            simpleSearchReplaceHistory : handle_switch_state_change,
-            simpleSearchTreeSw         : handle_search_restree,
-            simpleSearchSyncTree       : handle_search_restree,
-            simpleSearchResTop         : handle_search_restree,
-            simpleSearchAllPath        : handle_search_restree,
-            simpleSearchStyleNativeList: handle_restree_style,
-            simpleSearchStyleNativeTree: handle_restree_style,
-            simpleSearchStyleColorful  : handle_restree_style,
-            simpleSearchStyleEdiary    : handle_restree_style,
-            simpleSearchJumpHighlight  : handle_switch_state_change,
-            simpleSearchJumpBlink      : handle_switch_state_change,
-            simpleSearchCursorNone     : handle_cursor_position,
-            simpleSearchCursorBefore   : handle_cursor_position,
-            simpleSearchCursorSelect   : handle_cursor_position,
-            simpleSearchCursorAfter    : handle_cursor_position,
-            simpleSearchHistoryAutoClose: handle_history_auto_mode,
-            simpleSearchHistoryAutoSmart: handle_history_auto_mode,
-            simpleSearchHistoryAutoAlways: handle_history_auto_mode,
-        }
-        // 处理文本输入框的变化
-        const handle_ignored_inputs_change = (value) => {
-            const ignoredInputs = value.split(',').map(s => s.trim()).filter(s => s);
-            this.g_setting.ignored_inputs = ignoredInputs;
-            this.save_plugin_setting();
-        }
-        text_area.addEventListener('change', (event) => {
-            const id = event.target.id;
-            if (id === 'simpleSearchIgnoredInputs') {
-                handle_ignored_inputs_change(event.target.value);
-            } else if (key_map[id]) {
-                func_map[id](key_map[id], event.target.checked);
-            } else if (func_map[id]) {
-                // 处理历史记录自动显示模式 (close/smart/always)
-                const mode = id.replace('simpleSearchHistoryAuto', '').toLowerCase();
-                func_map[id](mode, event.target.checked);
+        nav_items.forEach(item => item.addEventListener('click', () => select_cat(item.dataset.cat)));
+        select_cat(categories[0].id);
+
+        const btns = dialog.element.querySelectorAll('.b3-dialog__action .b3-button');
+        btns[0].addEventListener('click', () => dialog.destroy());
+        btns[1].addEventListener('click', () => {
+            this.apply_setting_from_dialog(dialog.element);
+            dialog.destroy();
+        });
+    }
+    // 保存设置面板中的修改
+    apply_setting_from_dialog(dialog_element) {
+        dialog_element.querySelectorAll('[data-key]').forEach(ele => {
+            const key = ele.dataset.key;
+            if (ele.type === 'checkbox') {
+                this.g_setting[key] = ele.checked;
+            } else if (ele.tagName === 'TEXTAREA') {
+                this.g_setting[key] = ele.value.split(',').map(s => s.trim()).filter(s => s);
+            } else {
+                this.g_setting[key] = ele.value;
             }
         });
+        this.save_plugin_setting();
+        this.init_css_style();
+        // 搜索面板不一定打开
+        if (this.get_search_list()) this.show_search_res();
     }
     // 嵌入 信息显示框
     inseart_assist_area() {
@@ -1673,7 +1573,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         });
         this.get_ele('#simpleSearchDisplayTreeSetting')?.addEventListener('click', (event) => {
             event.stopPropagation();  // 停止事件传播
-            this.show_plugin_setting();
+            this.openSetting();
             event.target.blur();
         });
     }
@@ -1848,7 +1748,6 @@ class SimpleSearchHZ extends siyuan.Plugin {
                         this.g_setting.history_auto = 'close';
                         this.save_plugin_setting();
                         this.search_history_dispatch_input();
-                        if (this.get_ele('#simpleSearchAssistSetting')) this.show_plugin_setting();
                     }
                 }
                 else if (type == 'arrowdown') {
@@ -1856,7 +1755,6 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     if (this.g_setting.history_auto === 'close') {
                         this.g_setting.history_auto = 'always';
                         this.save_plugin_setting();
-                        if (this.get_ele('#simpleSearchAssistSetting')) this.show_plugin_setting();
                     }
                     if (this.is_show_history_list()) {
                         // 强制隐藏

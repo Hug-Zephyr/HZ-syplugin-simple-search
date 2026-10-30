@@ -61,28 +61,25 @@
             min-width: 80px;
         }
     }
-    /* 文档树样式 设置页面 */
-    #simpleSearchAssistSetting {
-        .b3-label:hover {
-            box-shadow: inset 0 0 100px rgba(0, 0, 0, 0.08);
-        }
-        .section-title {
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            margin-top: 12px;
-            margin-bottom: -4px;
-        }
-
-        .section-title i {
-            margin-right: 8px;
-        }
-
-        .radio-group {
-            display: flex;
-            gap: 20px;
-        }
-    }
     /* 解析结果 */
     /* #simpleSearchAnalysisResTable */
+}
+
+/* 插件设置对话框 */
+.simpleSearchSettingNav {
+    width: 150px;
+    flex-shrink: 0;
+    padding: 8px;
+    overflow: auto;
+    border-right: 1px solid var(--b3-border-color);
+    background-color: var(--b3-theme-surface);
+}
+.simpleSearchSettingNav .b3-list-item {
+    border-radius: var(--b3-border-radius);
+}
+.simpleSearchSettingPanes {
+    padding: 8px 16px;
+}
+.simpleSearchSettingPanes .config-name {
+    font-weight: 600;
 }
