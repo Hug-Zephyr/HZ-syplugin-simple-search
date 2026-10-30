@@ -611,6 +611,8 @@ function search_translator(arg) {
         if (!custom_path.length && !excludedPath.length) return "true";
         // 逐段转义后仍用 % 连接, 保留路径段之间的通配语义
         const _pathLike = (arr) => arr.map(escapeSqlLike).join('%');
+        // 用户是否输入了关键词, 必须在循环前判断: 循环里会把路径推导出的文档名 push 进 keywords
+        const no_keywords = keywords.length == 0;
         // 指定搜索路径名称
         // 1. 只有搜索路径 /笔记本1/文档1
         // 2. 指定搜索路径 加其他 /笔记本1 -h 序列号
@@ -619,7 +621,7 @@ function search_translator(arg) {
             if (path_arr.length == 0) return;
 
             let file_sql = ""
-            if (keywords.length == 0) {
+            if (no_keywords) {
                 // 没有关键词时, 转成搜索文档
                 const file_name = path_arr.at(-1);
                 file_sql = `type regexp '^[d]$' and content like '%${escapeSqlLike(file_name)}%' escape '!'`
