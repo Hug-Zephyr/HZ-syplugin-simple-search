@@ -609,8 +609,8 @@ function search_translator(arg) {
     const _buildSqlCustomPath = function() {
         let sqlCustomPath = "";
         if (!custom_path.length && !excludedPath.length) return "true";
-        // 逐段转义后仍用 % 连接, 保留路径段之间的通配语义
-        const _pathLike = (arr) => arr.map(escapeSqlLike).join('%');
+        // 逐段转义后用 %/% 连接: 段与段之间必须有一个 /, 避免 "文档1文档2" 这类名字被误命中
+        const _pathLike = (arr) => arr.map(escapeSqlLike).join('%/%');
         // 用户是否输入了关键词, 必须在循环前判断: 循环里会把路径推导出的文档名 push 进 keywords
         const no_keywords = keywords.length == 0;
         // 指定搜索路径名称
