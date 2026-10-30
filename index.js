@@ -266,25 +266,31 @@ function search_translator(arg) {
         "l": " when 'l' then ",
         "s": " when 's' then ",
     };
-    // 块映射
+    // 块映射: 搜索面板的类型 key -> blocks.type 里的类型码
     const blockTypeMapping = {
-        audioBlock: '',
+        audioBlock: 'audio',
         blockquote: 'b',
+        callout: 'callout',
         codeBlock: 'c',
-        databaseBlock: '',
+        customBlock: 'custom',
+        databaseBlock: 'av',
         document: 'd',
-        embedBlock: '',
+        embedBlock: 'query_embed',
         heading: 'h',
-        htmlBlock: '',
-        iframeBlock: '',
+        htmlBlock: 'html',
+        iframeBlock: 'iframe',
         list: 'l',
         listItem: 'i',
         mathBlock: 'm',
+        mindmap: 'mindmap',
+        mindmapItem: 'mindmap_item',
         paragraph: 'p',
         superBlock: 's',
+        tabItem: 'tab',
         table: 't',
-        videoBlock: '',
-        widgetBlock: ''
+        tabs: 'tabs',
+        videoBlock: 'video',
+        widgetBlock: 'widget'
     };
     const blockHelpMap = {
         'd': "文档块",
@@ -297,6 +303,20 @@ function search_translator(arg) {
         'c': "代码块",
         'm': "公式块",
         'h': "标题块",
+        'audio': "音频块",
+        'video': "视频块",
+        'iframe': "IFrame 块",
+        'widget': "挂件块",
+        'html': "HTML 块",
+        'av': "数据库块",
+        'query_embed': "嵌入块",
+        'custom': "自定义块",
+        'callout': "提示块",
+        'tabs': "页签块",
+        'tab': "页签项块",
+        'mindmap': "思维导图块",
+        'mindmap_item': "思维导图项块",
+        'tb': "分割线",
     }
     // 需要阻止搜索的特殊输入 - 从配置中读取
     const IGNORED_INPUTS = arg.ignoredInputs || [
