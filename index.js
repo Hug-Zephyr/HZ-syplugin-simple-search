@@ -350,8 +350,13 @@ function search_translator(arg) {
         if (Object.keys(help.block_type).length == 0 && type != '-s') {
             // 填充辅助信息的类型
             for (const key in pageSearchTypes) {
-                if (pageSearchTypes[key] && blockTypeMapping[key] != "") {
-                    help.block_type[blockTypeMapping[key]] = blockHelpMap[blockTypeMapping[key]];
+                if (!pageSearchTypes[key]) continue;
+                const type_code = blockTypeMapping[key];
+                if (type_code === undefined) {
+                    // 思源新增、插件还没映射的类型: 原样显示 key, 不显示 undefined
+                    help.block_type[key] = "";
+                } else if (type_code != "") {
+                    help.block_type[type_code] = blockHelpMap[type_code];
                 }
             }
         }
@@ -568,14 +573,21 @@ function search_translator(arg) {
 
         // 未指定搜索块类型时，选择“搜索类型”中开启的块类型
         if (sqlTypeRlike === "") {
-            let types = "";
+            const types = [];
             for (const key in pageSearchTypes) {
-                if (pageSearchTypes[key] && blockTypeMapping[key] != "") {
-                    types += blockTypeMapping[key];
-                    help.block_type[blockTypeMapping[key]] = blockHelpMap[blockTypeMapping[key]];
+                if (!pageSearchTypes[key]) continue;
+                const type_code = blockTypeMapping[key];
+                if (type_code === undefined) {
+                    // 思源新增、插件还没映射的类型: 原样使用 key, 不拼出 undefined
+                    types.push(key);
+                    help.block_type[key] = "";
+                } else if (type_code != "") {
+                    types.push(type_code);
+                    help.block_type[type_code] = blockHelpMap[type_code];
                 }
             }
-            sqlTypeRlike = `type regexp '^[${types}]$'`;
+            // 类型码不再是单字符(callout/mindmap 等), 不能用字符类
+            sqlTypeRlike = types.length ? `type in ('${types.join("','")}')` : "false";
         }
         return sqlTypeRlike ? `(${sqlTypeRlike})` : "true";
     }
