@@ -714,32 +714,20 @@ function search_translator(arg) {
     }
     // 块 默认排序方式
     const defaultOrderBy = `order by box ASC, hpath ASC `;
-    const defaultTypeOrderBy = `case type 
-        when 'd' then 1
-        when 'h' then 2
-        when 'i' then 3
-        when 'p' then 4
-        when 't' then 5
-        when 'b' then 6
-        when 'c' then 7
-        when 'm' then 8
-        when 'l' then 9
-        when 's' then 10
-        when 'html' then 11
-        when 'widget' then 12
-        when 'query_embed' then 13
-        when 'iframe' then 14
-        when 'audio' then 15
-        when 'video' then 16
-        when 'av' then 17
-        when 'custom' then 18
-        when 'callout' then 19
-        when 'tabs' then 20
-        when 'tab' then 21
-        when 'mindmap' then 22
-        when 'mindmap_item' then 23
-        when 'tb' then 24
-        end`;
+    // 块类型的默认展示顺序(用于生成类型排序的 CASE)
+    const default_type_order = ['d', 'h', 'i', 'p', 't', 'b', 'c', 'm', 'l', 's',
+        'html', 'widget', 'query_embed', 'iframe', 'audio', 'video', 'av',
+        'custom', 'callout', 'tabs', 'tab', 'mindmap', 'mindmap_item', 'tb'];
+    const type_order_rank = new Map(default_type_order.map((code, i) => [code, i + 1]));
+    // 只列出实际会出现的类型, 避免 SQL 里出现大量永远不命中的 when
+    const _buildTypeOrderCase = function(codes) {
+        let ret = "case type";
+        codes.forEach((code) => {
+            ret += ` when '${escapeSqlString(code)}' then ${type_order_rank.get(code)}`;
+        });
+        return ret + ' end';
+    };
+    const defaultTypeOrderBy = _buildTypeOrderCase(default_type_order);
     // 块排序
     const typeOrderMapping = {
         "d": " when 'd' then ",
@@ -848,6 +836,7 @@ function search_translator(arg) {
     const reg = build_command_registry(arg.command_config);
     let   extra_types = [];     // 多字符/kv 指定的新类型码
     let   type_order  = [];     // 类型排序优先级, 按输入顺序
+    let   effective_types = []; // 本次查询实际可能出现的块类型码(用于生成类型排序)
     let   doc_mode    = false;  // || 文档模式
 
     const _handle_ret = function(ret) {
@@ -1351,6 +1340,7 @@ function search_translator(arg) {
         let sqlTypeRlike = "";
         if (!sqlTypes && !extra_types.length && !keywords.length && !excludedKeywords.length && custom_path.some(s => /[^/]/.test(s))) {
             // 没有指定类型, 没有关键字/排除字, 路径有效的情况下, 只搜文档
+            effective_types.push('d');
             return "true";
         }
 
@@ -1358,11 +1348,15 @@ function search_translator(arg) {
             // 搜索标准块类型的sql语句
             "[dlptbsicms]": (types) => {
                 const basic_type = types.replace(/[^dlptbsicms]/g, "");
-                Array.from(basic_type).forEach((type_once) => help.block_type[type_once] = blockHelpMap[type_once]);
+                Array.from(basic_type).forEach((type_once) => {
+                    help.block_type[type_once] = blockHelpMap[type_once];
+                    effective_types.push(type_once);
+                });
                 return `type regexp '^[${basic_type}]$'`
             },
             // 搜索子标题的sql语句: 多次指定标题级别时取并集
             "h[1-6]*": (types) => {
+                effective_types.push('h');
                 const matches = types.match(/h[1-6]*/g) || [];
                 const headType = `type regexp '^[h]$'`;
                 // 单独的 h 表示所有标题
@@ -1380,6 +1374,7 @@ function search_translator(arg) {
             },
             // 搜索待办的sql语句
             "[oO]": (types) => {
+                effective_types.push('t');
                 let todoCondition = "";
                 if (types.includes('o')) {
                     help.block_type['o'] = "未完成的待办项";
@@ -1394,6 +1389,7 @@ function search_translator(arg) {
             },
             // 搜索带链接的块的sql语句
             "[L]": () => {
+                effective_types.push('h', 'p', 't');
                 help.block_type['L'] = "表示带有链接的块";
                 return `(type regexp '^[htp]$' and markdown like '%[%](%)%')`
             },
@@ -1408,6 +1404,7 @@ function search_translator(arg) {
 
         // 多字符/kv 指令指定的新块类型
         if (extra_types.length) {
+            effective_types.push(...extra_types);
             const codes = [...new Set(extra_types)].map(escapeSqlString);
             const extra_sql = `type in ('${codes.join("','")}')`;
             sqlTypeRlike = sqlTypeRlike ? `(${sqlTypeRlike}) or ${extra_sql}` : extra_sql;
@@ -1422,9 +1419,11 @@ function search_translator(arg) {
                 if (type_code === undefined) {
                     // 思源新增、插件还没映射的类型: 原样使用 key, 不拼出 undefined
                     types.push(key);
+                    effective_types.push(key);
                     help.block_type[key] = "";
                 } else if (type_code != "") {
                     types.push(type_code);
+                    effective_types.push(type_code);
                     help.block_type[type_code] = blockHelpMap[type_code];
                 }
             }
@@ -1560,20 +1559,31 @@ function search_translator(arg) {
             sort_help.push(nonGroupSortHelpMap[sort_e]);
         }
         switch(sort_e) {
-        case TYPE_SORT:
-            // 按照输入的类型优先
-            if (!type_order.length) {
-                sort_help.push(nonGroupSortHelpMap[TYPE_SORT])
+        case TYPE_SORT: {
+            // 类型排序: 只列出本次查询实际会出现的类型
+            if (type_order.length) {
+                // 显式指定类型: 按输入顺序排序, 保持原有行为
+                const codes = [...new Set(type_order)];
+                let ret_sql = "case type";
+                const help_tmp = [];
+                codes.forEach((code, i) => {
+                    ret_sql += ` when '${escapeSqlString(code)}' then ${i}`;
+                    help_tmp.push(blockHelpMap[code] || code);
+                });
+                sort_help.push(`类型排序(${help_tmp.join(' → ')})`);
+                // 只有一种类型时, 类型排序没有意义
+                return codes.length > 1 ? ret_sql + ' end' : "";
+            }
+            const codes = [...new Set(effective_types)];
+            // 无法确定有效类型, 或含思源新增的未知类型时, 回退全量默认顺序
+            if (!codes.length || codes.some(code => !type_order_rank.has(code))) {
+                sort_help.push(nonGroupSortHelpMap[TYPE_SORT]);
                 return defaultTypeOrderBy;
             }
-            let ret_sql = "case type";
-            let help_tmp = [];
-            type_order.forEach((code, i) => {
-                ret_sql += ` when '${escapeSqlString(code)}' then ${i}`;
-                help_tmp.push(blockHelpMap[code] || code);
-            });
-            sort_help.push(`类型排序(${help_tmp.join(' → ')})`);
-            return ret_sql + ' end';
+            sort_help.push(nonGroupSortHelpMap[TYPE_SORT]);
+            // 只有一种类型时, 类型排序没有意义, 不生成 ORDER BY
+            return codes.length > 1 ? _buildTypeOrderCase(codes) : "";
+        }
         case CT_ASC:
             return "created ASC";
         case CT_DESC:
@@ -1622,18 +1632,21 @@ function search_translator(arg) {
         else {
             // 不按照文档分组的排序, 思源不会处理, 所以都可以通过sql干预
             const help_tmp = [];
+            const sort_arr = [];
             if (custom_sort.length) {
                 // 指定了排序, 按照指定的拼接sql
-                const sort_arr = [];
                 custom_sort.forEach(sort_e => {
-                    sort_arr.push(_buildOrderByFromType(sort_e, help_tmp));
+                    const part = _buildOrderByFromType(sort_e, help_tmp);
+                    if (part) sort_arr.push(part);
                 });
-                sqlOrderBy += sort_arr.join(", ");
             }
             else {
                 // 没有指定排序, 按照页面配置
-                sqlOrderBy += _buildOrderByFromType(arg.sort, help_tmp);
+                const part = _buildOrderByFromType(arg.sort, help_tmp);
+                if (part) sort_arr.push(part);
             }
+            // 类型排序在只有一种类型时没有意义, 此时不生成 ORDER BY
+            sqlOrderBy = sort_arr.length ? `order by ${sort_arr.join(", ")}` : "";
             help.sort = `${help_tmp.join(' → ')}${sort_src}`;
         }
         if (sqlOrderBy == "order by ") {
@@ -2148,12 +2161,13 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     ])}
                 </div>
                 <div class="simpleSearchSettingPane" data-pane="history">
-                    ${row_switch('replace_history', '接管历史记录', '开启后:<br>1.可通过 alt+↓ 切换历史记录列表显示与隐藏;<br>2.可通过 alt+↑ 隐藏历史记录, 并将自动显示切换为"关闭";<br>3.依旧可以通过点击, 正常使用思源原生的历史记录功能;<br>关闭后: 不影响自动显示的功能;')}
-                    ${row_select('history_auto', '自动显示历史记录', '在搜索框输入内容时自动显示匹配到的历史记录<br>关闭: 不自动显示<br>智能显示: 完全匹配/完全匹配不到时不显示<br>总是显示: 不管输入什么都触发显示', [
+                    ${row_switch('intercept_search', '拦截搜索', '开启: 历史列表显示期间暂停搜索, 结果区保持上一次的结果<br>关闭: 历史列表只作为输入框下方的建议层, 搜索照常实时执行')}
+                    ${row_select('history_auto', '自动显示历史记录', '输入内容时自动显示匹配到的历史记录<br>关闭: 不自动显示, 需要时用 alt+↓ 手动调出<br>智能显示: 存在可用的历史候选时显示(与输入完全相同的项不计入)<br>总是显示: 只要输入不为空就显示, 首行为当前输入', [
                         {value: 'close',  label: '关闭'},
                         {value: 'smart',  label: '智能显示'},
                         {value: 'always', label: '总是显示'},
                     ])}
+                    ${row_switch('replace_history', '历史记录快捷键', '开启后: alt+↓ 显示/隐藏历史列表; alt+↑ 隐藏列表, 并把"自动显示历史记录"切为关闭<br>关闭后: 不使用这两个快捷键, 其余功能不受影响')}
                 </div>
                 <div class="simpleSearchSettingPane" data-pane="search">
                     ${row_switch('replace_search_res', '接管搜索结果', '开启后, 搜索结果将以新的样式进行显示(按文档分组时生效)')}
@@ -2730,7 +2744,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         const sw = this.g_setting.assist_sw ? disable_sw : enable_sw;
         icon_parent.insertAdjacentHTML('beforeend', `
             <span class="fn__space"></span>
-            <span id="simpleSearchShowSw" aria-label="${sw.label}" class="block__icon ariaLabel" data-position="9south">
+            <span id="simpleSearchShowSw" aria-label="${sw.label}" class="block__icon block__icon--show ariaLabel" data-position="9south">
                 <svg><use xlink:href="${sw.icon}"></use></svg>
             </span>
         `);
@@ -2760,7 +2774,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // 2. 增加帮助按钮
         icon_parent.insertAdjacentHTML('beforeend', `
             <span class="fn__space"></span>
-            <span id="simpleSearchHelp" aria-label="简搜: 点击显示指令速查手册" class="block__icon ariaLabel" data-position="9south">
+            <span id="simpleSearchHelp" aria-label="简搜: 点击显示指令速查手册" class="block__icon block__icon--show ariaLabel" data-position="9south">
                 <svg><use xlink:href="#iconHelp"></use></svg>
             </span>
         `);
@@ -2811,10 +2825,38 @@ class SimpleSearchHZ extends siyuan.Plugin {
     // 关闭搜索历史列表, 触发原生搜索事件
     search_history_dispatch_input() {
         // 隐藏历史列表, 打标记, 触发原生事件
+        clearTimeout(this.history_timer_id);
         this.hidden_search_history_list();
+        this.history_previewing = false;
         this.history_input_flag = true;
         this.dispatch_input();
         // this.get_search_input().focus();
+    }
+    // 取消历史记录: 关闭列表, 恢复手打的内容; 拦截模式下补一次搜索, 让结果对应手打内容
+    cancel_search_history() {
+        clearTimeout(this.history_timer_id);
+        const input = this.get_search_input();
+        if (input && this.history_previewing) {
+            input.value = this.history_typed_value;
+        }
+        this.history_previewing = false;
+        if (this.g_setting.intercept_search) {
+            this.search_history_dispatch_input();
+        } else {
+            this.hidden_search_history_list();
+        }
+    }
+    // 提交历史记录(回车/点击/alt+↑): 拦截模式下补一次搜索, 不拦截时搜索已经实时执行过
+    commit_search_history() {
+        clearTimeout(this.history_timer_id);
+        // 列表没有显示时, 没有可提交的内容
+        if (!this.is_show_history_list()) return;
+        if (this.g_setting.intercept_search || this.history_previewing) {
+            this.search_history_dispatch_input();
+        } else {
+            this.hidden_search_history_list();
+            this.history_previewing = false;
+        }
     }
     // 插入搜索历史列表所在的元素
     insert_search_history_list() {
@@ -2831,12 +2873,16 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 SYT.delete_search_history(li.getAttribute('title'));
                 // 隐藏这个历史
                 li.remove();
+                // 删空后直接隐藏列表, 避免留下空壳
+                if (!this.get_search_history_ul()?.children.length) {
+                    this.hidden_search_history_list();
+                }
                 // 光标聚焦到输入框, 方便点击了删除按钮之后, 继续通过上下键选择搜索历史
                 input.focus();
             }
             else if (li) {
-                input.value = li.getAttribute('title');
-                this.search_history_dispatch_input();
+                this.select_search_history_item(li);
+                this.commit_search_history();
             }
         });
     }
@@ -2845,13 +2891,51 @@ class SimpleSearchHZ extends siyuan.Plugin {
     select_search_history_item(item) {
         const history_ul = this.get_search_history_ul();
         if(!item || !history_ul || !history_ul.contains(item)) return;
+        // 用户开始用上下键选择后, 不要再被之前排队的延迟显示覆盖
+        clearTimeout(this.history_timer_id);
         history_ul.querySelector('.b3-list-item--focus')?.classList.remove('b3-list-item--focus');
         item.classList.add('b3-list-item--focus');
         item.scrollIntoView({
             behavior: 'auto', // 不用平滑滚动, 如果快速切换的时候, 选中的会不在可见区域内
             block: 'center'   // 或 'start', 'center', 'end'
         })
-        this.get_search_input().value = item.getAttribute('title');
+        const value = item.getAttribute('title');
+        this.get_search_input().value = value;
+        // 只有与手打内容不同才算预览, 避免回车时重复触发搜索
+        this.history_previewing = value !== this.history_typed_value;
+    }
+
+    // 搜索框高度变化后, 重新定位已显示的历史列表
+    reposition_search_history_list() {
+        const input = this.get_search_input();
+        const history_ul = this.get_search_history_ul();
+        if (!input || !history_ul || !this.is_show_history_list()) return;
+        const rect = input.getBoundingClientRect();
+        history_ul.style.left = `${rect.left+32}px`;
+        history_ul.style.top  = `${rect.bottom}px`;
+        this.limit_search_history_list_height();
+    }
+
+    // 按窗口剩余空间限制历史列表高度, 至少保留一行, 超出部分在列表内部滚动
+    // 不拦截搜索时列表只作建议层, 再压到最多 8 行, 避免遮挡实时结果
+    limit_search_history_list_height() {
+        const input = this.get_search_input();
+        const history_ul = this.get_search_history_ul();
+        if (!input || !history_ul) return;
+        // 先清掉旧值, 才能量出完整高度
+        history_ul.style.maxHeight = '';
+        const rect = input.getBoundingClientRect();
+        const avail_height = window.innerHeight - rect.bottom - 8;
+        let limit_height = avail_height;
+        if (!this.g_setting.intercept_search && history_ul.children.length > 8) {
+            const list_top = history_ul.getBoundingClientRect().top;
+            // 列表内部可能已经滚动, 补回 scrollTop 才是第 8 行的真实位置
+            const eighth_bottom = history_ul.children[7].getBoundingClientRect().bottom + history_ul.scrollTop;
+            limit_height = Math.min(limit_height, eighth_bottom - list_top + 8);
+        }
+        if (history_ul.getBoundingClientRect().height > limit_height) {
+            history_ul.style.maxHeight = `${Math.max(limit_height, 40)}px`;
+        }
     }
 
     // 更新搜索历史列表的显示
@@ -2862,11 +2946,14 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // 如果没有历史记录，直接返回（保持隐藏状态）
         if (!history.length) return;
         const rect = this.get_search_input()?.getBoundingClientRect();
+        const input_val = this.get_search_input()?.value || '';
         for (let i = 0; i < history.length; i++) {
-            let html_val = history[i];
-            let real_val = html_val.replace(/<span class="HZ-search-history-highlight">/g, "").replace(/<\/span>/g, "");
-            let close_html = `<svg class="HZ-search-history-svg b3-menu__action b3-menu__action--close"><use xlink:href="#iconCloseRound"></use></svg>`;
-            history_ul.insertAdjacentHTML('beforeend', `<li class="HZ-search-history-li b3-list-item" style="width:${rect.width}px" title="${real_val}"><span class="b3-list-item__text">${html_val}</span>${close_html}</li>`);
+            const html_val = history[i];
+            const real_val = html_val.replace(/<span class="HZ-search-history-highlight">/g, "").replace(/<\/span>/g, "");
+            // 首行是当前输入, 不提供删除按钮
+            const is_current = i === 0 && !!input_val;
+            const close_html = is_current ? '' : `<svg class="HZ-search-history-svg b3-menu__action b3-menu__action--close"><use xlink:href="#iconCloseRound"></use></svg>`;
+            history_ul.insertAdjacentHTML('beforeend', `<li class="HZ-search-history-li b3-list-item${is_current ? ' HZ-search-history-li--current' : ''}" style="width:${rect.width}px" title="${escapeHtml(real_val)}"><span class="b3-list-item__text">${html_val}</span>${close_html}</li>`);
             // tempMenu.addSeparator(1);
         }
         // 获取位置信息
@@ -2875,32 +2962,39 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // 显示
         history_ul.classList.remove('fn__none');
         this.select_search_history_item(history_ul.firstElementChild);
-        const bottom = history_ul.getBoundingClientRect().bottom;
-        if (bottom > window.innerHeight) {
-            history_ul.style.maxHeight = `${648 - (bottom-window.innerHeight) - 30}px`;
-        }
+        // 按窗口剩余空间限高, 每次显示都重新计算, 避免沿用旧值
+        this.limit_search_history_list_height();
     }
     // 显示历史搜索记录
-    show_search_history_list(history) {
-        const input_val = escapeHtml(this.get_search_input().value);
+    // force=true 用于 alt+↓ 强制调出: 跳过关闭/智能显示规则, 完整展示历史
+    show_search_history_list(history, force = false) {
+        const search_input = this.get_search_input();
+        if (!search_input) return;
+        const input_val = escapeHtml(search_input.value);
         const input_html = `<span class="HZ-search-history-highlight">${input_val}</span>`;
-        // 关闭模式: 不显示历史记录
-        if (this.g_setting.history_auto === 'close') {
-            this.search_history_dispatch_input();
-            return;
-        }
-        // 智能显示模式: 完全没有匹配到历史记录 || 完全匹配到历史记录 的时候, 关掉历史记录, 触发原生搜索事件
-        if (this.g_setting.history_auto === 'smart') {
-            if (!history.length || history.includes(input_html)) {
-                // console.log('完全匹配到/完全没匹配到, 触发原生搜索事件');
-                this.search_history_dispatch_input();
+        const intercept = !!this.g_setting.intercept_search;
+        // 记录手打的内容, 上下键预览之后可以恢复到这里
+        this.history_typed_value = search_input.value;
+        if (!force) {
+            // 关闭模式: 不显示历史记录
+            if (this.g_setting.history_auto === 'close') {
+                if (intercept) this.search_history_dispatch_input();
+                else this.hidden_search_history_list();
                 return;
             }
+            // 智能显示模式: 去掉与当前输入完全相同的项后, 还有候选才显示
+            if (this.g_setting.history_auto === 'smart') {
+                history = history.filter(record => record !== input_html);
+                if (!history.length) {
+                    if (intercept) this.search_history_dispatch_input();
+                    else this.hidden_search_history_list();
+                    return;
+                }
+            }
         }
-        // 总是显示模式: 不管输入什么都显示历史记录
-        // console.log('模糊匹配, 触发历史记录列表');
-        // 在第一位加一个当前输入内容
+        // 首行放当前输入; 历史里与当前输入完全相同的项去重
         if (input_val) {
+            history = history.filter(record => record !== input_html);
             history.unshift(input_html);
         }
         // 更新html
@@ -2915,9 +3009,28 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // input事件触发搜索历史列表
         // 中文触发顺序: start -> input -> input -> end
         // 英文触发顺序: input
-        let timerId = 0;
+        const schedule_history_list = (input) => {
+            clearTimeout(this.history_timer_id);
+            // 空输入不显示历史; 拦截模式下补一次搜索, 让结果区清空
+            if (!input) {
+                if (this.g_setting.intercept_search) this.search_history_dispatch_input();
+                else this.hidden_search_history_list();
+                return;
+            }
+            // 根据输入的搜索内容, 过滤出符合条件的历史记录
+            // 定时器用于防止短时间触发多次搜索事件
+            const history = matchHistory(input, SYT.get_search_history());
+            this.history_timer_id = setTimeout(() => this.show_search_history_list(history), 200);
+        };
         inputElement?.addEventListener('compositionend', (event) => {
             if (this.g_setting.history_auto === 'close') return;
+            if (!this.g_setting.intercept_search) {
+                // 不拦截搜索: 交给原生处理, 这里只刷新历史建议
+                this.history_typed_value = inputElement.value;
+                this.history_previewing = false;
+                schedule_history_list(inputElement.value);
+                return;
+            }
             // 因为思源原生也会监听compositionend事件, 然后触发与原生input一样的逻辑
             // 如果不阻止, 相当于还是触发了原生input事件, 这样的话, 下面的接管的逻辑就不管用了
             // 所以要阻止, 然后触发input, 由下面的逻辑判断是否触发原生input
@@ -2926,31 +3039,36 @@ class SimpleSearchHZ extends siyuan.Plugin {
         }, true);
         inputElement?.addEventListener('input', (event) => {
             // console.log('input事件触发', event.inputType, event.target.value, this.history_input_flag, event.isComposing, this.is_searching);
-            if (this.g_setting.history_auto === 'close') return;
-            if (this.is_searching) {
+            if (this.g_setting.history_auto === 'close') {
+                // 关闭模式不接管输入; 清掉可能残留的标记, 避免下一次输入被误判为历史触发
+                this.history_input_flag = false;
+                return;
+            }
+            const intercept = !!this.g_setting.intercept_search;
+            if (this.history_input_flag) {
+                // 由历史记录触发的原生 input 事件: 放行给思源执行搜索
+                this.history_input_flag = false;
+                this.is_searching = true;
+                return;
+            }
+            if (intercept && this.is_searching) {
                 // console.log('上次触发的搜索还没有结束, 不处理这次的input, 走思源原生input逻辑');
                 return;
             }
             if (event.isComposing) {
-                event.stopPropagation(); // 阻止传播
+                if (intercept) event.stopPropagation(); // 拦截时完全由插件接管输入
                 // console.log('任何地方都不处理这次的input');
                 return;
             }
-            clearTimeout(timerId);
-            if (this.history_input_flag) {
-                this.history_input_flag = false;
-                this.is_searching = true;
-                // console.log('由搜索历史触发 原生input事件');
-                return;
+            // 记录手打的内容, 用于取消预览时恢复
+            this.history_typed_value = event.target.value;
+            this.history_previewing = false;
+            if (intercept) {
+                // 阻止传播, 阻止原生搜索事件触发
+                event.stopPropagation();
             }
-            // 阻止传播, 阻止原生搜索事件触发
-            event.stopPropagation();
             // console.log('搜索历史处理input');
-            // 根据输入的搜索内容, 过滤出符合条件的历史记录
-            const input = event.target.value;
-            const history = matchHistory(input, SYT.get_search_history());
-            // 这里的定时器是为了防止短时间触发多次搜索事件
-            timerId = setTimeout(() => this.show_search_history_list(history), 200);
+            schedule_history_list(event.target.value);
         }, true);
 
         // 搜索历史列表相关事件监听
@@ -2958,15 +3076,15 @@ class SimpleSearchHZ extends siyuan.Plugin {
             if (event.ctrlKey || event.shiftKey || event.metaKey) return;
             const type = event.key.toLowerCase();
             if (event.altKey) {
-                // 处理接管历史记录
+                // 处理历史记录快捷键
                 if (!this.g_setting.replace_history) return;
                 if (type == 'arrowup') {
                     event.stopPropagation();
                     if (this.g_setting.history_auto !== 'close') {
                         this.g_setting.history_auto = 'close';
                         this.save_plugin_setting();
-                        this.search_history_dispatch_input();
                     }
+                    this.commit_search_history();
                 }
                 else if (type == 'arrowdown') {
                     event.stopPropagation();
@@ -2976,15 +3094,14 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     }
                     if (this.is_show_history_list()) {
                         // 强制隐藏
-                        this.search_history_dispatch_input();
+                        this.commit_search_history();
                     }
                     else {
                         // 强制显示历史记录
+                        clearTimeout(this.history_timer_id);
                         const input = this.get_search_input().value;
-                        let history = matchHistory(input, SYT.get_search_history(), true);
-                        const input_html = `<span class="HZ-search-history-highlight">${escapeHtml(input)}</span>`;
-                        history = history.filter(record => input_html != record);
-                        this.show_search_history_list(history);
+                        const history = matchHistory(input, SYT.get_search_history(), true);
+                        this.show_search_history_list(history, true);
                     }
                 }
                 return;
@@ -3010,9 +3127,17 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     this.select_search_history_item(ele_list[idx]);
                     break;
                 case 'enter':
+                    event.preventDefault(); // 防止 textarea 插入换行等默认行为
+                    if (this.g_setting.intercept_search || this.history_previewing) {
+                        event.stopPropagation(); // 由插件提交选中的历史项
+                    }
+                    // 不拦截搜索且没有预览时放行, 让原生回车立即触发搜索
+                    this.commit_search_history();
+                    break;
                 case 'escape':
+                    event.preventDefault(); // 防止 textarea 插入换行等默认行为
                     event.stopPropagation(); // 阻止传播
-                    this.search_history_dispatch_input();
+                    this.cancel_search_history();
                     break;
                 }
             }
@@ -3024,7 +3149,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 if (!this.is_show_history_list()) return;
                 if (event.composedPath().includes(this.get_search_input())) return;
                 if (event.composedPath().includes(this.get_search_history_ul())) return;
-                this.search_history_dispatch_input();
+                this.cancel_search_history();
             }, true);
         }
     }
@@ -3149,7 +3274,18 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // 根据转换后的内容, 设置相应的变量
         if (method_map[res.type] == undefined) return;
         // 搜索类型
-        query_arg.method = method_map[res.type].id;
+        const method_id = method_map[res.type].id;
+        query_arg.method = method_id;
+        // 与原生 updateSearchMethodControls 联动: SQL 模式加高搜索框
+        const search_input = this.get_search_input();
+        if (search_input) {
+            const is_sql = method_id === 2;
+            if (search_input.classList.contains('search__input--sql') !== is_sql) {
+                search_input.classList.toggle('search__input--sql', is_sql);
+                // 输入框高度变化后, 重新定位历史列表
+                this.reposition_search_history_list();
+            }
+        }
         this.get_ele("#searchSyntaxCheck")?.setAttribute('aria-label', method_map[res.type].aria);
         this.get_ele("#searchSyntaxCheck>svg>use")?.setAttribute('xlink:href', method_map[res.type].icon);
         // 搜索内容
@@ -3843,6 +3979,9 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.click_res_flag = false; // 点击搜索结果的标记
         this.last_sort      = -1;    // 页面原始的排序方式
         this.last_group     = -1;    // 页面原始的分组方式
+        this.history_typed_value = '';    // 用户手打的历史搜索内容, 取消预览时用于恢复
+        this.history_previewing  = false; // 输入框内容是否由历史项预览写入
+        this.history_timer_id    = 0;     // 历史列表延迟显示的定时器
 
         this.query        = {type:"", val:"", keywords:[], help:{}}; // 解析后的内容 {type: 搜索类型, val: 搜索内容, keywords: 关键词}
         this.g_setting    = {
@@ -3850,7 +3989,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
             log_level         : 'info',         // 日志等级: off/error/warn/info/debug
             assist_sw         : true,           // 辅助信息显示框 是否显示
             history_auto      : 'smart',        // 自动显示历史记录: close-关闭, smart-智能显示, always-总是显示
-            replace_history   : true,           // 取代历史记录
+            intercept_search  : true,           // 历史列表显示期间是否拦截(暂停)原生搜索
+            replace_history   : true,           // 历史记录快捷键(alt+↑/↓)是否启用
             replace_search_res: true,           // 是否接管搜索结果
             restree_style     : "native_tree",  // 文档树样式: 原生列表:native_list, 原生树:native_tree, 多彩:colorful, ediary
             sync_file         : true,           // 搜索结果的样式是否同步到文档树那里

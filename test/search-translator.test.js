@@ -449,7 +449,26 @@ test('排序: 未识别的值给出提示', () => {
 test('类型: 重复指定只生效一次', () => {
     const r = parse('--callout --callout');
     assert.deepEqual(block_types(r), ['callout']);
-    assert.equal((r.val.match(/when 'callout' then 0/g) || []).length, 1);
+    // 只有一种类型时, 类型排序没有意义, 不生成 CASE
+    assert.doesNotMatch(r.val, /order by case type/);
+
+    const r2 = parse('--callout --callout -d');
+    assert.equal((r2.val.match(/when 'callout' then/g) || []).length, 1);
+    assert.equal((r2.val.match(/when 'd' then/g) || []).length, 1);
+});
+
+test('类型排序: 只列出实际会出现的类型', () => {
+    // 单类型不生成类型排序
+    assert.doesNotMatch(parse('/sql').val, /order by case type/);
+
+    // 多种类型时只列出相关类型, 顺序与默认一致
+    const multi = parse('关键词 ct>2025', { types: { document: true, heading: true, paragraph: true } });
+    assert.match(multi.val, /order by case type when 'd' then 1 when 'h' then 2 when 'p' then 4 end/);
+    assert.doesNotMatch(multi.val, /when 'i' then/);
+
+    // 未知类型回退全量默认顺序
+    const unknown = parse('关键词 ct>2025', { types: { xyz: true } });
+    assert.match(unknown.val, /when 'tb' then 24/);
 });
 
 test('类型: 单独 -h 和全部标题级别', () => {

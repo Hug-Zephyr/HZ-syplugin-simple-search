@@ -15,6 +15,9 @@
 #simpleSearchHistoryList {
     position: fixed;
     z-index: 10;
+    /* 高度受限时在列表内部滚动, 避免文字溢出背景 */
+    overflow-y: auto;
+    overflow-x: hidden;
     /* 高亮匹配到的关键词 */
     .HZ-search-history-highlight {
         font-weight:bold;
