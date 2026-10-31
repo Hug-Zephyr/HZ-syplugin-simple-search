@@ -78,8 +78,267 @@
     border-radius: var(--b3-border-radius);
 }
 .simpleSearchSettingPanes {
-    padding: 8px 16px;
+    padding: 0 16px 8px;
+}
+.simpleSearchSettingPane {
+    padding-top: 8px;
 }
 .simpleSearchSettingPanes .config-name {
     font-weight: 600;
+}
+
+/* 指令配置编辑器 */
+.ss-cmd-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 4px 0 2px;
+}
+.ss-cmd-head .b3-button {
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.ss-cmd-cat {
+    margin: 18px 0 0;
+}
+.ss-cmd-cat-title {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 2px;
+    margin-bottom: 4px;
+    font-size: 14px;
+    font-weight: 600;
+    background: var(--b3-theme-surface);
+}
+.ss-cmd-cat-icon {
+    font-size: 15px;
+}
+.ss-cmd-cat-count {
+    padding: 0 6px;
+    border-radius: 9px;
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 18px;
+    color: var(--b3-theme-on-surface);
+    background: var(--b3-theme-surface);
+    opacity: 0.7;
+}
+.ss-cmd-cat-reset {
+    margin-left: auto;
+    padding: 1px 6px;
+    border: none;
+    border-radius: var(--b3-border-radius);
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--b3-theme-on-surface);
+    background: transparent;
+    opacity: 0.55;
+    cursor: pointer;
+}
+.ss-cmd-cat-reset:hover {
+    color: var(--b3-theme-primary);
+    background: var(--b3-list-hover);
+    opacity: 1;
+}
+
+.ss-cmd-items {
+    overflow: hidden;
+    border: 1px solid var(--b3-border-color);
+    border-radius: var(--b3-border-radius);
+}
+
+.ss-cmd-item {
+    display: grid;
+    grid-template-columns: 12px 28px 185px minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+    padding: 6px 10px;
+    border-top: 1px solid var(--b3-border-color);
+}
+.ss-cmd-item:first-child {
+    border-top: none;
+}
+.ss-cmd-item:hover {
+    background: var(--b3-list-hover);
+}
+.ss-cmd-drag {
+    font-size: 12px;
+    line-height: 1;
+    color: var(--b3-theme-on-surface);
+    opacity: 0.35;
+    cursor: grab;
+    user-select: none;
+}
+.ss-cmd-drag:active {
+    cursor: grabbing;
+}
+.ss-cmd-enabled {
+    margin: 0;
+}
+.ss-cmd-item[data-enabled="false"] .ss-cmd-item-info,
+.ss-cmd-item[data-enabled="false"] .ss-cmd-forms {
+    opacity: 0.45;
+}
+.ss-cmd-item--placeholder {
+    background: var(--b3-list-hover);
+    border-radius: var(--b3-border-radius);
+    outline: 1px dashed var(--b3-border-color);
+    outline-offset: -4px;
+    pointer-events: none;
+}
+.ss-cmd-item--placeholder > * {
+    visibility: hidden;
+}
+.ss-cmd-drag-ghost {
+    position: fixed;
+    z-index: 1000;
+    box-sizing: border-box;
+    pointer-events: none;
+    outline: 1px solid var(--b3-theme-primary);
+    outline-offset: -1px;
+    border-radius: var(--b3-border-radius);
+    background: var(--b3-theme-background);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+}
+body.ss-cmd-dragging {
+    cursor: grabbing;
+    user-select: none;
+}
+.ss-cmd-item-info {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+}
+.ss-cmd-item-name {
+    min-width: 0;
+    overflow: hidden;
+    font-weight: 600;
+    line-height: 1.45;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+.ss-cmd-item-hint {
+    flex-shrink: 0;
+    font-family: var(--b3-font-family-code);
+    font-size: 12px;
+    line-height: 1.45;
+    opacity: 0.45;
+}
+.ss-cmd-item-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.ss-cmd-reset-item {
+    flex: 0 0 24px;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: var(--b3-border-radius);
+    font-size: 14px;
+    line-height: 1;
+    color: var(--b3-theme-on-surface);
+    background: transparent;
+    opacity: 0.4;
+    cursor: pointer;
+}
+.ss-cmd-reset-item:hover {
+    color: var(--b3-theme-primary);
+    background: var(--b3-list-hover);
+    opacity: 1;
+}
+
+.ss-cmd-forms {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.ss-cmd-form {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.ss-cmd-form-type {
+    flex: 0 0 86px;
+    width: 86px;
+    height: 26px;
+    padding: 3px 24px 3px 8px;
+    box-sizing: border-box;
+    line-height: 20px;
+    font-family: var(--b3-font-family-code);
+    font-size: 12px;
+}
+.ss-cmd-form .b3-text-field {
+    min-width: 0;
+    height: 26px;
+    padding: 0 8px;
+    font-family: var(--b3-font-family-code);
+    font-size: 12.5px;
+}
+.ss-cmd-form .ss-cmd-multi,
+.ss-cmd-form .ss-cmd-kv-value {
+    flex: 1;
+}
+.ss-cmd-form .ss-cmd-single {
+    flex: 0 0 104px;
+}
+.ss-cmd-form .ss-cmd-kv-key {
+    flex: 0 0 168px;
+}
+.ss-cmd-form[data-form="single"] .ss-cmd-multi,
+.ss-cmd-form[data-form="single"] .ss-cmd-kv-key,
+.ss-cmd-form[data-form="single"] .ss-cmd-kv-value,
+.ss-cmd-form[data-form="multi"] .ss-cmd-single,
+.ss-cmd-form[data-form="multi"] .ss-cmd-kv-key,
+.ss-cmd-form[data-form="multi"] .ss-cmd-kv-value,
+.ss-cmd-form[data-form="kv"] .ss-cmd-single,
+.ss-cmd-form[data-form="kv"] .ss-cmd-multi {
+    display: none;
+}
+
+/* 添加 / 删除形式 */
+.ss-cmd-add-form {
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 1px dashed var(--b3-border-color);
+    border-radius: 50%;
+    font-size: 16px;
+    line-height: 1;
+    color: var(--b3-theme-on-surface);
+    background: transparent;
+    opacity: 0.5;
+    cursor: pointer;
+}
+.ss-cmd-add-form:hover {
+    border-color: var(--b3-theme-primary);
+    color: var(--b3-theme-primary);
+    opacity: 1;
+}
+.ss-cmd-del-form {
+    flex: 0 0 24px;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: var(--b3-border-radius);
+    font-size: 15px;
+    line-height: 1;
+    color: var(--b3-theme-on-surface);
+    background: transparent;
+    opacity: 0.4;
+    cursor: pointer;
+}
+.ss-cmd-del-form:hover {
+    color: #fff;
+    background: var(--b3-theme-error);
+    opacity: 1;
 }

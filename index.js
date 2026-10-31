@@ -1,36 +1,41 @@
 const siyuan = require("siyuan");
 
-function mylog(...args) {
-    // return
+// 日志等级: off < error < warn < info < debug
+const LOG_LEVELS = { off: 0, error: 1, warn: 2, info: 3, debug: 4 };
+let LOG_LEVEL = LOG_LEVELS.info;
+function set_log_level(level) {
+    LOG_LEVEL = Object.prototype.hasOwnProperty.call(LOG_LEVELS, level)
+        ? LOG_LEVELS[level] : LOG_LEVELS.info;
+}
+function mylog_at(level, ...args) {
+    if (LOG_LEVEL < LOG_LEVELS[level]) return;
     const err = new Error();
-    // 获取堆栈信息
+    // 获取堆栈信息, 跳过日志函数自身的栈帧
     const stack = err.stack.split('\n');
-    const location = stack[2] || "unknown location";
+    const location = stack.slice(1).find(line => !line.includes('mylog_at') && !line.includes('mylog')) || "unknown location";
 
     // 解析函数名、文件名和行号
     const parts = location.trim().split(' ');
     const functionName = parts[1] || "unknown function";
     const fileInfo = decodeURIComponent(parts[2]?.replace(/\s*\(\s*|\s*:\d+\)\s*/g, '')); // 去掉小括号中的内容
 
-    // 获取当前时间
-    const now = new Date();
-    // 获取时间部分
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    const seconds = String(now.getSeconds()).padStart(2, '0');
-    const milliseconds = String(now.getMilliseconds()).padStart(3, '0');
-
     // 构造日志前缀
-    // const logPrefix = `[${hours}:${minutes}:${seconds}:${milliseconds}] [${functionName} ${fileInfo}]`;
-    const logPrefix = `[${functionName} ${fileInfo}]`;
-
-    console.log(`${logPrefix} `, ...args);
+    const logPrefix = `[${level.toUpperCase()}][${functionName} ${fileInfo}]`;
+    const console_fn = level === 'error' ? console.error
+        : level === 'warn' ? console.warn
+        : console.log;
+    console_fn(`${logPrefix} `, ...args);
 }
+// 默认按 debug 输出, 老代码里的 mylog 调用都属于调试信息
+function mylog(...args) { mylog_at('debug', ...args); }
+function mylog_info(...args) { mylog_at('info', ...args); }
+function mylog_warn(...args) { mylog_at('warn', ...args); }
+function mylog_error(...args) { mylog_at('error', ...args); }
 // 功能: 监听直到元素存在
 // 找到 selector 时，执行 func_cb，监听超时时间默认为 4s
 // selector: string | #id | function
 function whenExist(selector, func_cb, time_out = 4000) {
-    console.log("whenExist begin", selector);
+    mylog("whenExist begin", selector);
 
     return new Promise((resolve) => {
         const startTime = Date.now(); // 记录开始时间
@@ -49,7 +54,7 @@ function whenExist(selector, func_cb, time_out = 4000) {
                 element = selector();
             } else {
                 // 若 selector 不合法，直接退出
-                console.error("Invalid selector type");
+                mylog_warn("Invalid selector type");
                 resolve(false);
                 return;
             }
@@ -60,7 +65,7 @@ function whenExist(selector, func_cb, time_out = 4000) {
                 resolve(true);
             } else if (Date.now() - startTime >= time_out) {
                 // 超时处理
-                console.log(selector, "whenExist timeout");
+                mylog_warn(selector, "whenExist timeout");
                 resolve(false);
             } else {
                 // 元素不存在且未超时，继续检查
@@ -190,6 +195,339 @@ const SYT = {
     },
 }
 
+// 指令配置默认值
+// key = 分类; 每个项可以配 单字符/多字符/kv 三种形式
+// single: content 是单个字符, 解析时自动补 '-'
+// multi:  content 是完整 token, 原样使用
+// kv:     key 是前缀, value 是拼在后面的值(可为空, 表示由用户输入)
+function get_default_command_config() {
+    const type_item = (id, name, code, comms) => ({ id, name, kind: 'type', code, comms });
+    const new_type = (code, name) => ({
+        id: code,
+        name,
+        kind: 'type',
+        code,
+        comms: [
+            { form: 'multi', content: '--' + code },
+            { form: 'kv', key: '--type=', value: code },
+        ],
+    });
+    // 默认关闭的类型(单项开关)
+    const off_type = (code, name) => {
+        const item = new_type(code, name);
+        item.enabled = false;
+        return item;
+    };
+    return {
+        version: 1,
+        categories: [
+            {
+                id: 'mode', name: '搜索方式', icon: '🔍',
+                items: [
+                    { id: 'keyword', name: '关键字搜索', kind: 'mode', mode: '-w', comms: [{ form: 'single', content: 'w' }] },
+                    { id: 'query',   name: '查询语法',   kind: 'mode', mode: '-q', comms: [{ form: 'single', content: 'q' }] },
+                    { id: 'sql',     name: 'SQL',        kind: 'mode', mode: '-s', comms: [{ form: 'single', content: 's' }] },
+                    { id: 'regex',   name: '正则表达式', kind: 'mode', mode: '-r', comms: [{ form: 'single', content: 'r' }] },
+                ],
+            },
+            {
+                id: 'type', name: '块类型过滤', icon: '🧩',
+                items: [
+                    type_item('d', '文档块', 'd', [{ form: 'single', content: 'd' }]),
+                    { id: 'h', name: '标题块', kind: 'heading', comms: [{ form: 'single', content: 'h' }] },
+                    type_item('p', '段落块', 'p', [{ form: 'single', content: 'p' }]),
+                    type_item('c', '代码块', 'c', [{ form: 'single', content: 'c' }]),
+                    type_item('l', '列表块', 'l', [{ form: 'single', content: 'l' }]),
+                    type_item('i', '列表项块', 'i', [{ form: 'single', content: 'i' }]),
+                    type_item('b', '引述块', 'b', [{ form: 'single', content: 'b' }]),
+                    new_type('callout', '提示块'),
+                    type_item('t', '表格块', 't', [{ form: 'single', content: 't' }]),
+                    type_item('m', '公式块', 'm', [{ form: 'single', content: 'm' }]),
+                    { id: 's', name: '超级块', kind: 'type', code: 's', enabled: false, comms: [{ form: 'single', content: 'S' }] },
+                    { id: 'o', name: '未完成待办', kind: 'todo', done: false, comms: [{ form: 'single', content: 'o' }] },
+                    { id: 'O', name: '已完成待办', kind: 'todo', done: true,  comms: [{ form: 'single', content: 'O' }] },
+                    { id: 'L', name: '带链接的块',   kind: 'link', comms: [{ form: 'single', content: 'L' }] },
+                    off_type('tabs', '页签块'),
+                    off_type('tab', '页签项块'),
+                    off_type('mindmap', '思维导图块'),
+                    off_type('mindmap_item', '思维导图项块'),
+                    off_type('query_embed', '嵌入块'),
+                    off_type('widget', '挂件块'),
+                    off_type('av', '数据库块'),
+                    off_type('html', 'HTML 块'),
+                    off_type('custom', '自定义块'),
+                    off_type('tb', '分割线'),
+                    off_type('audio', '音频块'),
+                    off_type('video', '视频块'),
+                    off_type('iframe', 'IFrame 块'),
+                ],
+            },
+            {
+                id: 'path', name: '路径', icon: '📁',
+                items: [
+                    { id: 'path', name: '路径过滤', kind: 'path', action: 'path', comms: [{ form: 'multi', content: '/' }] },
+                    { id: 'all', name: '全文档', kind: 'path', action: 'all', comms: [{ form: 'single', content: 'a' }, { form: 'multi', content: '//' }] },
+                    { id: 'not_path', name: '排除路径', kind: 'path', action: 'exclude', comms: [{ form: 'multi', content: '-/' }] },
+                    { id: 'current', name: '当前文档', kind: 'current', tree: false, comms: [{ form: 'single', content: 'k' }] },
+                    { id: 'current_tree', name: '当前文档及子文档', kind: 'current', tree: true, comms: [{ form: 'single', content: 'K' }] },
+                ],
+            },
+            {
+                id: 'time', name: '时间', icon: '🕒',
+                items: [
+                    { id: 'ct', name: '创建时间', kind: 'time', field: 'ct', comms: [{ form: 'multi', content: 'ct' }, { form: 'kv', key: '--time=', value: 'ct' }] },
+                    { id: 'ut', name: '更新时间', kind: 'time', field: 'ut', comms: [{ form: 'multi', content: 'ut' }, { form: 'kv', key: '--time=', value: 'ut' }] },
+                ],
+            },
+            {
+                id: 'group', name: '分组', icon: '🗂️',
+                items: [
+                    { id: 'doc', name: '按文档分组', kind: 'group', value: 1, comms: [{ form: 'multi', content: 'g<' }, { form: 'multi', content: 'g>' }, { form: 'kv', key: '--group=', value: 'doc' }] },
+                    { id: 'none', name: '不分组', kind: 'group', value: 0, comms: [{ form: 'multi', content: 'nog<' }, { form: 'multi', content: 'nog>' }, { form: 'kv', key: '--group=', value: 'none' }] },
+                ],
+            },
+            {
+                id: 'sort', name: '排序', icon: '🔀',
+                items: [
+                    { id: 'type', name: '按类型', kind: 'sort', value: 0, comms: [{ form: 'multi', content: 'type<' }, { form: 'multi', content: 'type>' }, { form: 'kv', key: '--sort=', value: 'type' }] },
+                    { id: 'content', name: '原文顺序', kind: 'sort', value: 5, comms: [{ form: 'multi', content: 'cont<' }, { form: 'multi', content: 'cont>' }, { form: 'kv', key: '--sort=', value: 'content' }] },
+                    { id: 'ct_asc', name: '创建时间升序', kind: 'sort', value: 1, comms: [{ form: 'multi', content: 'ct<' }, { form: 'kv', key: '--sort=', value: 'ct:asc' }] },
+                    { id: 'ct_desc', name: '创建时间降序', kind: 'sort', value: 2, comms: [{ form: 'multi', content: 'ct>' }, { form: 'kv', key: '--sort=', value: 'ct:desc' }] },
+                    { id: 'ut_asc', name: '更新时间升序', kind: 'sort', value: 3, comms: [{ form: 'multi', content: 'ut<' }, { form: 'kv', key: '--sort=', value: 'ut:asc' }] },
+                    { id: 'ut_desc', name: '更新时间降序', kind: 'sort', value: 4, comms: [{ form: 'multi', content: 'ut>' }, { form: 'kv', key: '--sort=', value: 'ut:desc' }] },
+                ],
+            },
+            {
+                id: 'ext', name: '扩展', icon: '🧰',
+                items: [
+                    { id: 'not', name: '排除关键词', kind: 'ext', action: 'not', comms: [{ form: 'multi', content: '!' }] },
+                    { id: 'docmode', name: '文档模式', kind: 'ext', action: 'docmode', comms: [{ form: 'multi', content: '||' }] },
+                ],
+            },
+        ],
+    };
+}
+
+// 多字符形式是否需要把后面的内容当作参数
+function is_prefix_item(item) {
+    if (item.kind === 'path') return true;                        // /、//、-/ 后面接路径
+    if (item.kind === 'time') return true;                        // ct、ut 后面接比较符
+    if (item.kind === 'ext' && item.action === 'not') return true; // ! 后面接关键词
+    return false;
+}
+
+// 一个指令项在帮助/解析面板中的展示形式
+// 路径、时间、排除关键词这类前缀指令, 多字符形式后面还要接内容
+function get_item_display_forms(item) {
+    const forms = [];
+    const add = (s) => { if (s && !forms.includes(s)) forms.push(s); };
+    for (const c of (item.comms || [])) {
+        if (c.form === 'single') {
+            add('-' + c.content);
+        } else if (c.form === 'multi') {
+            let token = c.content;
+            if (item.kind === 'path') token += '路径';
+            else if (item.kind === 'time') token += '>2025';
+            else if (item.kind === 'ext' && item.action === 'not') token += '关键词';
+            add(token);
+        } else if (c.form === 'kv') {
+            let val = c.value;
+            if (item.kind === 'path') val = '路径';
+            else if (item.kind === 'time') val = (val || '') + '>2025';
+            else if (item.kind === 'ext' && item.action === 'not') val = '关键词';
+            else if (!val) val = '值';
+            add(c.key + val);
+        }
+    }
+    return forms;
+}
+
+// 从配置构建解析索引
+function build_command_registry(cfg) {
+    if (!cfg || !Array.isArray(cfg.categories)) cfg = get_default_command_config();
+    const reg = {
+        single: new Map(),       // 字符 -> {cat, item}
+        multi_exact: new Map(),  // 完整 token -> {cat, item}
+        multi_prefix: [],        // {token, cat, item}
+        kv_groups: new Map(),    // key -> [{cat, item, value}]
+        modes: [],               // {single|token|key, value, item}
+        type_cmd_map: new Map(), // 类型码 -> 展示用指令(取配置中的第一种形式)
+        // 被单项开关关闭的指令, 只用于给出"已关闭"的提示
+        disabled_single: new Map(),
+        disabled_exact: new Map(),
+        disabled_prefix: [],
+        disabled_kv: [],
+    };
+    for (const cat of cfg.categories) {
+        for (const item of (cat.items || [])) {
+            // 被单项开关关闭的项不参与解析
+            if (item.enabled === false) {
+                for (const c of (item.comms || [])) {
+                    if (c.form === 'single') {
+                        reg.disabled_single.set(c.content, { cat: cat.id, item });
+                    } else if (c.form === 'multi') {
+                        if (is_prefix_item(item)) reg.disabled_prefix.push({ token: c.content, cat: cat.id, item });
+                        else reg.disabled_exact.set(c.content, { cat: cat.id, item });
+                    } else if (c.form === 'kv' && c.key) {
+                        reg.disabled_kv.push({ key: c.key, value: c.value || '', cat: cat.id, item });
+                    }
+                }
+                continue;
+            }
+            // 类型项的首选展示形式, 供解析面板使用
+            if (cat.id === 'type') {
+                const cmd = get_item_display_forms(item)[0] || '';
+                if (item.kind === 'type') reg.type_cmd_map.set(item.code, cmd);
+                else if (item.kind === 'heading') reg.type_cmd_map.set('h', cmd);
+                else if (item.kind === 'todo') reg.type_cmd_map.set(item.done ? 'O' : 'o', cmd);
+                else if (item.kind === 'link') reg.type_cmd_map.set('L', cmd);
+            }
+            for (const c of (item.comms || [])) {
+                if (c.form === 'single') {
+                    if (cat.id === 'mode') reg.modes.push({ single: c.content, item });
+                    else reg.single.set(c.content, { cat: cat.id, item });
+                } else if (c.form === 'multi') {
+                    if (cat.id === 'mode') reg.modes.push({ token: c.content, item });
+                    else if (is_prefix_item(item)) reg.multi_prefix.push({ token: c.content, cat: cat.id, item });
+                    else reg.multi_exact.set(c.content, { cat: cat.id, item });
+                } else if (c.form === 'kv') {
+                    if (cat.id === 'mode') reg.modes.push({ key: c.key, value: c.value || '', item });
+                    else {
+                        if (!reg.kv_groups.has(c.key)) reg.kv_groups.set(c.key, []);
+                        reg.kv_groups.get(c.key).push({ cat: cat.id, item, value: c.value || '' });
+                    }
+                }
+            }
+        }
+    }
+    reg.multi_prefix.sort((a, b) => b.token.length - a.token.length);
+    return reg;
+}
+
+// 校验指令配置, 返回错误信息; 没有错误返回空字符串
+function validate_command_config(cfg) {
+    if (!cfg || !Array.isArray(cfg.categories)) return '缺少 categories 数组';
+    const singles = new Set();
+    const multis = new Set();
+    const kvs = new Set();
+    for (const cat of cfg.categories) {
+        if (!Array.isArray(cat.items)) return `分类 ${cat.id} 缺少 items`;
+        for (const item of cat.items) {
+            if (item.enabled === false) continue;  // 关闭的项不参与解析, 也不参与重复校验
+            if (!Array.isArray(item.comms)) return `项 ${item.id} 缺少 comms`;
+            for (const c of item.comms) {
+                if (c.form === 'single') {
+                    if (typeof c.content !== 'string' || [...c.content].length !== 1) return `单字符必须是 1 个字符: ${c.content}`;
+                    if (singles.has(c.content)) return `单字符重复: ${c.content}`;
+                    singles.add(c.content);
+                } else if (c.form === 'multi') {
+                    if (!c.content) return `多字符不能为空: ${item.id}`;
+                    if (multis.has(c.content)) return `多字符重复: ${c.content}`;
+                    multis.add(c.content);
+                } else if (c.form === 'kv') {
+                    if (!c.key) return `kv 缺少 key: ${item.id}`;
+                    const sig = JSON.stringify([c.key, c.value || '']);
+                    if (kvs.has(sig)) return `kv 重复: ${c.key}${c.value || ''}`;
+                    kvs.add(sig);
+                } else {
+                    return `未知的指令形式: ${c.form}`;
+                }
+            }
+        }
+    }
+    return '';
+}
+
+// ===== 指令配置可视化编辑器 =====
+const COMMAND_FORM_LABELS = { single: '单字符', multi: '多字符', kv: 'kv' };
+
+// 一行指令形式的编辑控件
+function get_command_editor_form_html(comm) {
+    const c = comm || { form: 'multi', content: '' };
+    const form = c.form || 'multi';
+    const opts = Object.keys(COMMAND_FORM_LABELS).map(v =>
+        `<option value="${v}"${v === form ? ' selected' : ''}>${COMMAND_FORM_LABELS[v]}</option>`).join("");
+    return `<div class="ss-cmd-form" data-form="${form}">
+        <select class="b3-select ss-cmd-form-type">${opts}</select>
+        <input class="b3-text-field ss-cmd-single" maxlength="1"
+            value="${escapeHtml(c.form === 'single' ? (c.content || '') : '')}" placeholder="字符, 不含 -">
+        <input class="b3-text-field ss-cmd-multi"
+            value="${escapeHtml(c.form === 'multi' ? (c.content || '') : '')}" placeholder="完整指令, 如 --audio">
+        <input class="b3-text-field ss-cmd-kv-key"
+            value="${escapeHtml(c.form === 'kv' ? (c.key || '') : '')}" placeholder="key, 如 --type=">
+        <input class="b3-text-field ss-cmd-kv-value"
+            value="${escapeHtml(c.form === 'kv' ? (c.value || '') : '')}" placeholder="值(可空)">
+        <button type="button" class="ss-cmd-del-form" data-action="del-form" title="删除该形式" aria-label="删除该形式">×</button>
+    </div>`;
+}
+
+// 整个指令配置的编辑界面
+function get_command_editor_html(cfg) {
+    return (cfg.categories || []).map(cat => `
+        <div class="ss-cmd-cat" data-cat="${escapeHtml(cat.id)}">
+            <div class="ss-cmd-cat-title">
+                <span class="ss-cmd-cat-icon">${escapeHtml(cat.icon || '')}</span>
+                <span>${escapeHtml(cat.name || cat.id)}</span>
+                <span class="ss-cmd-cat-count">${(cat.items || []).length}</span>
+                <button type="button" class="ss-cmd-cat-reset" data-action="reset-cat" title="恢复该分类的默认指令">恢复默认</button>
+            </div>
+            <div class="ss-cmd-items">
+                ${(cat.items || []).map(item => `
+                    <div class="ss-cmd-item" data-item-id="${escapeHtml(item.id)}" data-enabled="${item.enabled === false ? 'false' : 'true'}">
+                        <span class="ss-cmd-drag" title="拖动调整顺序">⠿</span>
+                        <input class="b3-switch ss-cmd-enabled" type="checkbox" ${item.enabled === false ? "" : "checked"} title="启用/禁用该项">
+                        <div class="ss-cmd-item-info">
+                            <span class="ss-cmd-item-name">${escapeHtml(item.name || item.id)}</span>
+                            <span class="ss-cmd-item-hint">${escapeHtml(item.id)}</span>
+                        </div>
+                        <div class="ss-cmd-forms">${(item.comms || []).map(get_command_editor_form_html).join("")}</div>
+                        <div class="ss-cmd-item-actions">
+                            <button type="button" class="ss-cmd-reset-item" data-action="reset-item" title="恢复该项默认" aria-label="恢复该项默认">↺</button>
+                            <button type="button" class="ss-cmd-add-form" data-action="add-form" title="添加形式" aria-label="添加形式">+</button>
+                        </div>
+                    </div>`).join("")}
+            </div>
+        </div>`).join("");
+}
+
+// 从编辑界面读回配置; base_cfg 保留项的类型码、排序值等语义字段
+// 项的顺序以界面为准(支持拖动), 开关状态也一并读回
+function read_command_config_from_editor(container, base_cfg) {
+    const cfg = JSON.parse(JSON.stringify(base_cfg));
+    for (const cat of (cfg.categories || [])) {
+        const cat_node = container.querySelector(`.ss-cmd-cat[data-cat="${cat.id}"]`);
+        if (!cat_node) continue;
+        const base_items = new Map((cat.items || []).map(i => [i.id, i]));
+        const items = [];
+        cat_node.querySelectorAll('.ss-cmd-item').forEach(item_node => {
+            const base = base_items.get(item_node.dataset.itemId);
+            if (!base) return;
+            const item = JSON.parse(JSON.stringify(base));
+            const switch_ele = item_node.querySelector('.ss-cmd-enabled');
+            item.enabled = switch_ele ? switch_ele.checked : true;
+            const comms = [];
+            item_node.querySelectorAll('.ss-cmd-form').forEach(row => {
+                const form = row.querySelector('.ss-cmd-form-type').value;
+                if (form === 'single') {
+                    const content = row.querySelector('.ss-cmd-single').value.trim();
+                    if (content) comms.push({ form: 'single', content });
+                } else if (form === 'multi') {
+                    const content = row.querySelector('.ss-cmd-multi').value.trim();
+                    if (content) comms.push({ form: 'multi', content });
+                } else if (form === 'kv') {
+                    const key = row.querySelector('.ss-cmd-kv-key').value.trim();
+                    const value = row.querySelector('.ss-cmd-kv-value').value.trim();
+                    if (key) comms.push({ form: 'kv', key, value });
+                }
+            });
+            item.comms = comms;
+            items.push(item);
+        });
+        cat.items = items;
+    }
+    return cfg;
+}
+
 // 对外接口: 解析输入内容
 // in: arg: input-search事件的 data.detail.config
 // out: {type:搜索类型, val:搜索内容, keywords:关键词, help:帮助信息}
@@ -252,6 +590,16 @@ function search_translator(arg) {
         when 'widget' then 12
         when 'query_embed' then 13
         when 'iframe' then 14
+        when 'audio' then 15
+        when 'video' then 16
+        when 'av' then 17
+        when 'custom' then 18
+        when 'callout' then 19
+        when 'tabs' then 20
+        when 'tab' then 21
+        when 'mindmap' then 22
+        when 'mindmap_item' then 23
+        when 'tb' then 24
         end`;
     // 块排序
     const typeOrderMapping = {
@@ -347,12 +695,21 @@ function search_translator(arg) {
         keywords    : [],
         excluded    : [],
         block_type  : {},
+        type_cmd    : {},   // 类型码 -> 展示用指令
         path        : arg.hPath,
         custom_path : [],
         excludedPath: [],
         custom_time : [],
         sort        : "默认",
+        group_desc  : "",
+        errors      : [],
     }
+
+    // 指令配置与解析索引
+    const reg = build_command_registry(arg.command_config);
+    let   extra_types = [];     // 多字符/kv 指定的新类型码
+    let   type_order  = [];     // 类型排序优先级, 按输入顺序
+    let   doc_mode    = false;  // || 文档模式
 
     const _handle_ret = function(ret) {
         ret = ret.replace(/and true /g, '');
@@ -364,7 +721,7 @@ function search_translator(arg) {
         }
         help.ret_str  = ret;
         if (help.type.length == 0) help.type = type;
-        help.group_file = !!options.match(/e/);
+        help.group_file = doc_mode;
         help.keywords = keywords;
         help.excluded = excludedKeywords;
         if (Object.keys(help.block_type).length == 0 && type != '-s') {
@@ -381,7 +738,18 @@ function search_translator(arg) {
             }
         }
         if (help.sort == '默认') {
-            help.sort = _getSortHelpPrefix() + sortHelpMap[arg.sort];
+            help.group_desc = arg.group ? "按文档分组" : "不分组";
+            help.sort = sortHelpMap[arg.sort];
+        }
+        // 补齐类型的展示指令: 以当前配置为准, 改名后解析面板也能同步
+        for (const key in help.block_type) {
+            if (help.type_cmd[key]) continue;
+            if (/^h[1-6]*$/.test(key)) {
+                help.type_cmd[key] = (reg.type_cmd_map.get('h') || '-h') + key.slice(1);
+            } else {
+                help.type_cmd[key] = reg.type_cmd_map.get(key)
+                    || (key.length > 1 ? '--' + key : '-' + key);
+            }
         }
         return {type, val, keywords, help};
     }
@@ -456,30 +824,282 @@ function search_translator(arg) {
         // 成功匹配完整个字符串
         return true;
     }
-    // 解析输入内容, 解析出 关键词, 排除的关键词, 搜索选项
+    // 记录一个类型项
+    const _add_type = function(item, payload) {
+        if (item.kind === 'type') {
+            const code = item.code;
+            if (code.length === 1) options += code;
+            else if (!extra_types.includes(code)) extra_types.push(code);
+            if (!type_order.includes(code)) type_order.push(code);
+            help.block_type[code] = blockHelpMap[code] || "";
+        } else if (item.kind === 'heading') {
+            const levels = (payload || '').replace(/[^1-6]/g, '');
+            const token = levels ? 'h' + levels : 'h';
+            options += token;
+            if (!type_order.includes('h')) type_order.push('h');
+            help.block_type[token] = levels ? `${[...new Set(levels.split(''))].join(',')}级标题` : '标题';
+        } else if (item.kind === 'todo') {
+            options += item.done ? 'O' : 'o';
+            help.block_type[item.done ? 'O' : 'o'] = blockHelpMap[item.done ? 'O' : 'o'];
+        } else if (item.kind === 'link') {
+            options += 'L';
+            help.block_type['L'] = blockHelpMap['L'];
+        }
+    };
+    // 应用一个解析出来的指令项
+    const _apply_item = function(hit, payload) {
+        const item = hit.item;
+        switch (item.kind) {
+        case 'type':
+        case 'heading':
+        case 'todo':
+        case 'link':
+            _add_type(item, payload);
+            break;
+        case 'path': {
+            // 统一成以 / 开头的路径: 多字符前缀后面不带 /, kv 形式可能已经带了
+            const p = payload.startsWith('/') ? payload : '/' + payload;
+            if (item.action === 'path') custom_path.push(p);
+            else if (item.action === 'all') { custom_path_all = 1; custom_path.push('/' + p); }
+            else if (item.action === 'exclude') excludedPath.push(p);
+            break;
+        }
+        case 'current':
+            options += item.tree ? 'K' : 'k';
+            break;
+        case 'time': {
+            const expr = item.field + payload;
+            if (!_parse_time(expr)) help.errors.push(`时间格式错误: ${expr}`);
+            break;
+        }
+        case 'group':
+            custom_group = item.value;
+            arg.group = item.value;
+            break;
+        case 'sort':
+            if (!custom_sort.includes(item.value)) custom_sort.push(item.value);
+            break;
+        case 'ext':
+            if (item.action === 'not') {
+                if (payload) excludedKeywords.push(payload);
+            } else if (item.action === 'docmode') {
+                doc_mode = true;
+            }
+            break;
+        }
+    };
+    // 处理 kv: 同一个 key 下的值, 逗号分隔可以写多个
+    const _apply_kv = function(group, payload, key) {
+        const parts = payload.split(',').map(s => s.trim()).filter(s => s);
+        if (!parts.length) { help.errors.push(`kv 指令缺少值: ${payload}`); return; }
+        // 只要有一个值对应被单项开关关闭的项, 整个 token 退化为关键词
+        const disabled_names = [];
+        for (const part of parts) {
+            const disabled = (reg.disabled_kv || []).find(g => {
+                if (g.key !== key) return false;
+                if (g.item.kind === 'time') return g.value && part.startsWith(g.value);
+                return g.value === '' || part === g.value;
+            });
+            if (disabled) {
+                const name = disabled.item.name || disabled.item.id;
+                if (!disabled_names.includes(name)) disabled_names.push(name);
+            }
+        }
+        if (disabled_names.length) {
+            const token = key + payload;
+            help.errors.push(`指令已关闭, 已按关键词搜索: ${token}（${disabled_names.join("、")}）`);
+            keywords.push(token);
+            return;
+        }
+        for (const part of parts) {
+            let matched = null;
+            for (const g of group) {
+                if (g.item.kind === 'time') {
+                    // 时间的值是指段前缀, 后面还可以接比较符
+                    if (g.value && part.startsWith(g.value)) { matched = g; break; }
+                } else if (g.value === '' || part === g.value) {
+                    matched = g; break;
+                }
+            }
+            if (!matched) { help.errors.push(`未识别的值: ${part}`); continue; }
+            if (matched.item.kind === 'time') {
+                if (!_parse_time(part)) help.errors.push(`时间格式错误: ${part}`);
+            } else {
+                // value 为空表示由用户输入(路径/排除词这类动态值)
+                _apply_item(matched, matched.value === '' ? part : '');
+            }
+        }
+    };
+    // 解析单字符组合, 返回 null 表示不是有效指令
+    const _parse_single_combo = function(token) {
+        if (!token.startsWith('-') || token.length <= 1) return null;
+        const chars = token.slice(1);
+        const actions = [];
+        let i = 0;
+        while (i < chars.length) {
+            const hit = reg.single.get(chars[i]);
+            if (!hit) return null;
+            if (hit.item.kind === 'heading') {
+                let j = i + 1;
+                while (j < chars.length && /[1-6]/.test(chars[j])) j++;
+                actions.push({ hit, payload: chars.slice(i + 1, j) });
+                i = j;
+            } else {
+                actions.push({ hit, payload: '' });
+                i++;
+            }
+        }
+        return actions;
+    };
+    // 判断 token 是否是已注册的指令(不产生副作用)
+    const _is_registered_token = function(token) {
+        if (reg.multi_exact.has(token)) return true;
+        for (const [key] of reg.kv_groups) if (token.startsWith(key)) return true;
+        for (const p of reg.multi_prefix) if (token.startsWith(p.token)) return true;
+        return !!_parse_single_combo(token);
+    };
+    // 判断 token 是否命中了被单项开关关闭的指令
+    const _match_disabled_command = function(token) {
+        const name_of = (item) => item.name || item.id;
+        if (reg.disabled_exact.has(token)) {
+            return { names: [name_of(reg.disabled_exact.get(token).item)] };
+        }
+        for (const p of reg.disabled_prefix) {
+            if (!token.startsWith(p.token)) continue;
+            const rest = token.slice(p.token.length);
+            if (!rest) continue;
+            // 时间要带比较符, 避免把 ctf 这类普通词误判成关闭的 ct
+            if (p.item.kind === 'time' && !/^[>=<]/.test(rest)) continue;
+            return { names: [name_of(p.item)] };
+        }
+        for (const g of reg.disabled_kv) {
+            if (!token.startsWith(g.key)) continue;
+            const rest = token.slice(g.key.length);
+            if (g.value && !rest.startsWith(g.value)) continue;
+            return { names: [name_of(g.item)] };
+        }
+        // 单字符组合: 只要有一个字符对应的项被关闭, 整个 token 都退化为关键词
+        if (token.startsWith('-') && token.length > 1) {
+            const chars = token.slice(1);
+            const names = [];
+            let i = 0;
+            while (i < chars.length) {
+                const enabled = reg.single.get(chars[i]);
+                const disabled = reg.disabled_single.get(chars[i]);
+                const hit = enabled || disabled;
+                if (!hit) return null;
+                if (!enabled) {
+                    const name = name_of(disabled.item);
+                    if (!names.includes(name)) names.push(name);
+                }
+                if (hit.item.kind === 'heading') {
+                    let j = i + 1;
+                    while (j < chars.length && /[1-6]/.test(chars[j])) j++;
+                    i = j;
+                } else {
+                    i++;
+                }
+            }
+            if (names.length) return { names };
+        }
+        return null;
+    };
+    // 解析单个 token
+    const _parse_command_token = function(token) {
+        // 1. 完整多字符指令
+        if (reg.multi_exact.has(token)) {
+            _apply_item(reg.multi_exact.get(token), '');
+            return true;
+        }
+        // 2. kv / 多字符前缀, 取最长匹配
+        let best = null;
+        for (const [key, group] of reg.kv_groups) {
+            if (token.startsWith(key) && (!best || key.length > best.len)) {
+                best = { kind: 'kv', group, payload: token.slice(key.length), key, len: key.length };
+            }
+        }
+        for (const p of reg.multi_prefix) {
+            if (token.startsWith(p.token) && (!best || p.token.length > best.len)) {
+                best = { kind: 'prefix', hit: { cat: p.cat, item: p.item }, payload: token.slice(p.token.length), len: p.token.length };
+            }
+        }
+        if (best) {
+            if (best.kind === 'kv') _apply_kv(best.group, best.payload, best.key);
+            else _apply_item(best.hit, best.payload);
+            return true;
+        }
+        // 3. 单字符组合
+        const actions = _parse_single_combo(token);
+        if (actions) {
+            actions.forEach(a => _apply_item(a.hit, a.payload));
+            return true;
+        }
+        return false;
+    };
+    // 模式指令: 可以在任意位置; 出现后其余内容原样作为查询
+    const _scan_mode = function() {
+        const tokens = input.split(' ');
+        const first = tokens[0] || '';
+        // 首 token 是完整的模式指令(多字符/kv)时优先匹配, 避免被粘连单字符误判
+        for (const md of reg.modes) {
+            if (md.token && first === md.token) {
+                const rest = tokens.slice(1).join(' ');
+                return { mode: md.item.mode, query: rest.trim() };
+            }
+            if (md.key && first.startsWith(md.key)) {
+                const val = first.slice(md.key.length);
+                if (!md.value || val === md.value) {
+                    const rest = tokens.slice(1).join(' ');
+                    return { mode: md.item.mode, query: rest.trim() };
+                }
+            }
+        }
+        // 开头的粘连写法 -sselect, 首 token 不能是其他已注册指令
+        if (first.startsWith('-') && !_is_registered_token(first)) {
+            for (const md of reg.modes) {
+                if (md.single && first.startsWith('-' + md.single)) {
+                    const query = first.slice(md.single.length + 1) +
+                        (tokens.length > 1 ? ' ' + tokens.slice(1).join(' ') : '');
+                    return { mode: md.item.mode, query: query.trim() };
+                }
+            }
+        }
+        // 其他位置: 独立的单字符模式, 或多字符/kv 模式
+        let hit = null, idx = -1;
+        for (let i = 0; i < tokens.length; i++) {
+            for (const md of reg.modes) {
+                if (md.single && tokens[i] === '-' + md.single) { hit = md; idx = i; }
+                else if (md.token && tokens[i] === md.token) { hit = md; idx = i; }
+                else if (md.key && tokens[i].startsWith(md.key)) {
+                    const val = tokens[i].slice(md.key.length);
+                    if (!md.value || val === md.value) { hit = md; idx = i; }
+                }
+            }
+        }
+        if (hit) {
+            const rest = tokens.slice(0, idx).concat(tokens.slice(idx + 1)).join(' ');
+            return { mode: hit.item.mode, query: rest.trim() };
+        }
+        return null;
+    };
+    // 解析输入内容
     const _parseInput = function() {
         const inputItems = input.split(" ");
         for (let item of inputItems) {
             if (item === "" || item === "-" || item === "--") {
                 continue;
-            } else if (item.match(/^-([kKedlptbsicmoOL]|h[1-6]*)+$/)) {
-                options += item.slice(1);
-            } else if (item.startsWith('-/')) {
-                excludedPath.push(item.slice(1));
-            } else if (_parse_time(item)) {
-                continue;
-            } else if (item.startsWith('--')) {
-                excludedKeywords.push(item.slice(2));
-            } else if (item.startsWith('/')) {
-                if (item.startsWith('//')) {
-                    custom_path_all = 1;
-                }
-                custom_path.push(item);
-            } else if (_parse_sort(item)) {
-                continue;
-            } else {
-                keywords.push(item);
             }
+            if (_parse_command_token(item)) continue;
+            const disabled_hit = _match_disabled_command(item);
+            if (disabled_hit) {
+                help.errors.push(`指令已关闭, 已按关键词搜索: ${item}（${disabled_hit.names.join("、")}）`);
+                keywords.push(item);
+                continue;
+            }
+            if (item.startsWith('-') && item.length > 1) {
+                help.errors.push(`未识别的指令, 已按关键词搜索: ${item}`);
+            }
+            keywords.push(item);
         }
     }
 
@@ -537,15 +1157,15 @@ function search_translator(arg) {
         // 去掉指定路径相关的选项
         let sqlTypes = options.replace(/[kKe]/g, "");
         let sqlTypeRlike = "";
-        if (!sqlTypes && !keywords.length && !excludedKeywords.length && custom_path.some(s => /[^/]/.test(s))) {
+        if (!sqlTypes && !extra_types.length && !keywords.length && !excludedKeywords.length && custom_path.some(s => /[^/]/.test(s))) {
             // 没有指定类型, 没有关键字/排除字, 路径有效的情况下, 只搜文档
             return "true";
         }
 
         const typeHandlers = {
             // 搜索标准块类型的sql语句
-            "[dlptbsicm]": (types) => {
-                const basic_type = types.replace(/[^dlptbsicm]/g, "");
+            "[dlptbsicms]": (types) => {
+                const basic_type = types.replace(/[^dlptbsicms]/g, "");
                 Array.from(basic_type).forEach((type_once) => help.block_type[type_once] = blockHelpMap[type_once]);
                 return `type regexp '^[${basic_type}]$'`
             },
@@ -591,6 +1211,13 @@ function search_translator(arg) {
             }
         }
 
+        // 多字符/kv 指令指定的新块类型
+        if (extra_types.length) {
+            const codes = [...new Set(extra_types)].map(escapeSqlString);
+            const extra_sql = `type in ('${codes.join("','")}')`;
+            sqlTypeRlike = sqlTypeRlike ? `(${sqlTypeRlike}) or ${extra_sql}` : extra_sql;
+        }
+
         // 未指定搜索块类型时，选择“搜索类型”中开启的块类型
         if (sqlTypeRlike === "") {
             const types = [];
@@ -614,7 +1241,7 @@ function search_translator(arg) {
     // [拼接sql] 以文档维度,过滤关键词
     const _buildSqlGroupByFile = function() {
         let sqlGroupByFile = "";
-        if (options.match(/e/)) {
+        if (doc_mode) {
             // 文档模式才处理
             // 暂时先不处理块类型
             // let sqlTypeRlike = 'and ' + _buildSqlTypeRlike(options);
@@ -733,10 +1360,6 @@ function search_translator(arg) {
         }
         return sqlCurrentDoc ? `(${sqlCurrentDoc})` : "true";
     }
-    const _getSortHelpPrefix = function() {
-        // 示例: [指定]按文档分组: [指定]
-        return `[${custom_group == -1 ? "页面配置" : "指定"}]${arg.group ? "按文档分组" : "不分组"}: [${custom_sort.length ? "指定" : "页面配置"}]`;
-    }
     const _buildOrderByFromType = function(sort_e, sort_help=[]) {
         if (sort_e != TYPE_SORT) {
             sort_help.push(nonGroupSortHelpMap[sort_e]);
@@ -744,25 +1367,18 @@ function search_translator(arg) {
         switch(sort_e) {
         case TYPE_SORT:
             // 按照输入的类型优先
-            let ret_sql = "case type";
-            let help_tmp = [];
-            let sqlTypes = options.replace(/[oOL1-6]/g, "");
-            if (sqlTypes == "") {
+            if (!type_order.length) {
                 sort_help.push(nonGroupSortHelpMap[TYPE_SORT])
                 return defaultTypeOrderBy;
             }
-            for (let i = 0; i < sqlTypes.length; i++) {
-                if (typeOrderMapping[sqlTypes[i]]) {
-                    ret_sql += typeOrderMapping[sqlTypes[i]] + i.toString();
-                    help_tmp.push(blockHelpMap[sqlTypes[i]])
-                }
-            }
-            if (ret_sql != "case type") {
-                sort_help.push('('+help_tmp.join(',')+')');
-                return ret_sql + ' end';
-            }
-            sort_help.push(nonGroupSortHelpMap[TYPE_SORT])
-            return defaultTypeOrderBy;
+            let ret_sql = "case type";
+            let help_tmp = [];
+            type_order.forEach((code, i) => {
+                ret_sql += ` when '${escapeSqlString(code)}' then ${i}`;
+                help_tmp.push(blockHelpMap[code] || code);
+            });
+            sort_help.push(`类型排序(${help_tmp.join(' → ')})`);
+            return ret_sql + ' end';
         case CT_ASC:
             return "created ASC";
         case CT_DESC:
@@ -782,7 +1398,9 @@ function search_translator(arg) {
     // [拼接sql] 搜索结果排序方式
     const _buildOrderByQuery = function() {
         let sqlOrderBy = "order by ";
-        help.sort = _getSortHelpPrefix();
+        const group_src = custom_group == -1 ? "" : "(指定)";
+        const sort_src = custom_sort.length ? "(指定)" : "";
+        help.group_desc = `${arg.group ? "按文档分组" : "不分组"}${group_src}`;
         if (arg.group) {
             // 按照文档分组, 只支持指定的第一个方式或页面
             sqlOrderBy = defaultOrderBy;
@@ -800,7 +1418,11 @@ function search_translator(arg) {
                 // 其他排序方式, 拼接sql
                 sqlOrderBy += ', ' + _buildOrderByFromType(arg.sort);
             }
-            help.sort += `文档:路径名升序->单文档下:${groupSortHelpMap[arg.sort]}`;
+            let detail = groupSortHelpMap[arg.sort];
+            if (arg.sort == TYPE_SORT && type_order.length) {
+                detail = `类型排序(${type_order.map(code => blockHelpMap[code] || code).join(' → ')})`;
+            }
+            help.sort = `文档路径升序 → 文档内按${detail}${sort_src}`;
         }
         else {
             // 不按照文档分组的排序, 思源不会处理, 所以都可以通过sql干预
@@ -817,7 +1439,7 @@ function search_translator(arg) {
                 // 没有指定排序, 按照页面配置
                 sqlOrderBy += _buildOrderByFromType(arg.sort, help_tmp);
             }
-            help.sort += help_tmp.join('->');
+            help.sort = `${help_tmp.join(' → ')}${sort_src}`;
         }
         if (sqlOrderBy == "order by ") {
             sqlOrderBy = defaultOrderBy;
@@ -829,7 +1451,7 @@ function search_translator(arg) {
     const _buildSqlSearchQuery = function() {
         let sqlPrefix = 'select * from blocks where ' + SYT.SQL_FLAG;
         // 过滤关键词
-        let sqlKeyWords = _buildSqlKeyWords(options.match(/e/));
+        let sqlKeyWords = _buildSqlKeyWords(doc_mode);
         // 过滤块类型
         let sqlTypeRlike = _buildSqlTypeRlike(options);
         // 以文档维度,过滤关键词
@@ -848,7 +1470,8 @@ function search_translator(arg) {
 
     // 区分场景 构造搜索语句
     const _buildQuery = function() {
-        if (options.length || custom_path.length || excludedPath.length ||
+        if (options.length || extra_types.length || doc_mode ||
+            custom_path.length || excludedPath.length || custom_path_all ||
             custom_time.length || custom_sort.length || custom_group != -1) {
             // 指定选项/路径/时间/排序/分组
             mylog('type: sql语句');
@@ -861,9 +1484,9 @@ function search_translator(arg) {
         }
         else {
             // 没有选项, 排除词, 自定义路径, 用解析出的关键词拼接;
-            // 避免把单独出现的 "--" 等无效 token 原样带进搜索内容
+            // 无效指令已被忽略, 不能把原始输入再当关键词搜索
             mylog('type: 关键词');
-            return "-w" + (keywords.length ? keywords.join(" ") : input);
+            return "-w" + (keywords.length ? keywords.join(" ") : "");
         }
     }
 
@@ -875,8 +1498,9 @@ function search_translator(arg) {
         res.blocked = true; // 标记被拦截, 调用方据此跳过等待搜索结束
         return res;
     }
-    if (input.match(/^-[wqrs]/) != null) {
-        return _handle_ret(input);
+    const mode_hit = _scan_mode();
+    if (mode_hit) {
+        return _handle_ret(mode_hit.mode + mode_hit.query);
     }
     if (input.length < 2) {
         return _handle_ret("-w"+input);
@@ -1273,10 +1897,12 @@ class SimpleSearchHZ extends siyuan.Plugin {
     openSetting() {
         const g_setting = this.g_setting;
         const categories = [
+            {id: 'general', icon: '🔌', name: '常规'},
             {id: 'history', icon: '🕒', name: '历史记录'},
             {id: 'search',  icon: '🔍', name: '搜索结果'},
             {id: 'jump',    icon: '🎯', name: '跳转效果'},
             {id: 'block',   icon: '🚫', name: '搜索拦截'},
+            {id: 'command', icon: '⌨️', name: '指令配置'},
         ];
         const row_switch = (key, title, desc) => `
             <label class="fn__flex b3-label config-item">
@@ -1316,6 +1942,16 @@ class SimpleSearchHZ extends siyuan.Plugin {
         <div class="b3-dialog__content simpleSearchSetting" style="padding:0;display:flex;flex:1;overflow:hidden;">
             <div class="simpleSearchSettingNav b3-list b3-list--background">${nav_html}</div>
             <div class="simpleSearchSettingPanes fn__flex-1" style="overflow:auto;">
+                <div class="simpleSearchSettingPane" data-pane="general">
+                    ${row_switch('plugin_enabled', '启用插件', '插件总开关。关闭后不再接管搜索输入、历史记录和搜索结果，并移除已插入的辅助界面；重新打开即可恢复')}
+                    ${row_select('log_level', '日志等级', '控制台日志的详细程度，调试级别会输出解析过程等信息', [
+                        {value: 'off',   label: '关闭 (off)'},
+                        {value: 'error', label: '错误 (error)'},
+                        {value: 'warn',  label: '警告 (warn)'},
+                        {value: 'info',  label: '信息 (info)'},
+                        {value: 'debug', label: '调试 (debug)'},
+                    ])}
+                </div>
                 <div class="simpleSearchSettingPane" data-pane="history">
                     ${row_switch('replace_history', '接管历史记录', '开启后:<br>1.可通过 alt+↓ 切换历史记录列表显示与隐藏;<br>2.可通过 alt+↑ 隐藏历史记录, 并将自动显示切换为"关闭";<br>3.依旧可以通过点击, 正常使用思源原生的历史记录功能;<br>关闭后: 不影响自动显示的功能;')}
                     ${row_select('history_auto', '自动显示历史记录', '在搜索框输入内容时自动显示匹配到的历史记录<br>关闭: 不自动显示<br>智能显示: 完全匹配/完全匹配不到时不显示<br>总是显示: 不管输入什么都触发显示', [
@@ -1348,6 +1984,21 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 <div class="simpleSearchSettingPane" data-pane="block">
                     ${row_textarea('ignored_inputs', '阻止搜索的特殊输入', '当输入框内容完全匹配以下任一值时, 阻止搜索(多个值用英文逗号分隔)', (g_setting.ignored_inputs || []).join(", "))}
                 </div>
+                <div class="simpleSearchSettingPane" data-pane="command">
+                    <div class="ss-cmd-head">
+                        <div class="fn__flex-1">
+                            <div class="config-name">指令配置</div>
+                            <div class="b3-label__text">
+                                每一项可以配置多个“形式”：<br>
+                                单字符只填字符，程序自动补 <span class="fn__code">-</span>；多字符填完整 token；kv 填 key 和值（key 要带结尾的 <span class="fn__code">=</span>，值可留空表示由输入内容决定）。<br>
+                                保存时会校验单字符、多字符、kv 是否重复。
+                            </div>
+                        </div>
+                        <button class="b3-button b3-button--outline b3-button--small" id="simpleSearchResetCommandConfig">恢复默认</button>
+                    </div>
+                    <div id="simpleSearchCommandEditor"></div>
+                    <textarea data-key="command_config_json" style="display:none"></textarea>
+                </div>
             </div>
         </div>
         <div class="b3-dialog__action">
@@ -1359,7 +2010,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         const dialog = new siyuan.Dialog({
             title: this.displayName || this.name,
             content: content,
-            width: '820px',
+            width: '1040px',
             height: '70vh',
         });
 
@@ -1372,17 +2023,265 @@ class SimpleSearchHZ extends siyuan.Plugin {
         nav_items.forEach(item => item.addEventListener('click', () => select_cat(item.dataset.cat)));
         select_cat(categories[0].id);
 
+        // 指令配置: 可视化编辑
+        const command_pane = dialog.element.querySelector('[data-pane="command"]');
+        const editor_ele = command_pane ? command_pane.querySelector('#simpleSearchCommandEditor') : null;
+        const json_ele = command_pane ? command_pane.querySelector('[data-key="command_config_json"]') : null;
+        let base_cfg = null;
+
+        const get_initial_command_config = () => {
+            let cfg = null;
+            try { cfg = JSON.parse(JSON.stringify(g_setting.command_config || get_default_command_config())); }
+            catch (e) { cfg = null; }
+            try {
+                if (!cfg || validate_command_config(cfg)) cfg = get_default_command_config();
+            } catch (e) { cfg = get_default_command_config(); }
+            return cfg;
+        };
+        const render_command_editor = (cfg) => {
+            base_cfg = cfg;
+            if (!editor_ele) return;
+            editor_ele.innerHTML = get_command_editor_html(cfg);
+            if (json_ele) json_ele.value = JSON.stringify(cfg);
+        };
+        render_command_editor(get_initial_command_config());
+
+        if (editor_ele) {
+            editor_ele.addEventListener('click', (event) => {
+                // 恢复某个分类的默认指令
+                const reset_cat_btn = event.target.closest('[data-action="reset-cat"]');
+                if (reset_cat_btn) {
+                    if (!base_cfg) return;
+                    const cat_id = reset_cat_btn.closest('.ss-cmd-cat').dataset.cat;
+                    const def_cat = get_default_command_config().categories.find(c => c.id === cat_id);
+                    if (!def_cat) return;
+                    const cur = read_command_config_from_editor(editor_ele, base_cfg);
+                    cur.categories = cur.categories.map(c =>
+                        c.id === cat_id ? JSON.parse(JSON.stringify(def_cat)) : c);
+                    render_command_editor(cur);
+                    return;
+                }
+                // 恢复某一项的默认指令
+                const reset_item_btn = event.target.closest('[data-action="reset-item"]');
+                if (reset_item_btn) {
+                    if (!base_cfg) return;
+                    const cat_node = reset_item_btn.closest('.ss-cmd-cat');
+                    const item_node = reset_item_btn.closest('.ss-cmd-item');
+                    if (!cat_node || !item_node) return;
+                    const cat_id = cat_node.dataset.cat;
+                    const item_id = item_node.dataset.itemId;
+                    const def_cat = get_default_command_config().categories.find(c => c.id === cat_id);
+                    const def_item = def_cat && (def_cat.items || []).find(i => i.id === item_id);
+                    if (!def_item) return;
+                    const cur = read_command_config_from_editor(editor_ele, base_cfg);
+                    const cat = cur.categories.find(c => c.id === cat_id);
+                    if (!cat) return;
+                    cat.items = cat.items.map(i =>
+                        i.id === item_id ? JSON.parse(JSON.stringify(def_item)) : i);
+                    render_command_editor(cur);
+                    return;
+                }
+                const add_btn = event.target.closest('[data-action="add-form"]');
+                if (add_btn) {
+                    const forms = add_btn.closest('.ss-cmd-item').querySelector('.ss-cmd-forms');
+                    forms.insertAdjacentHTML('beforeend', get_command_editor_form_html({ form: 'multi', content: '' }));
+                    forms.lastElementChild.querySelector('.ss-cmd-multi').focus();
+                    return;
+                }
+                const del_btn = event.target.closest('[data-action="del-form"]');
+                if (del_btn) del_btn.closest('.ss-cmd-form').remove();
+            });
+            editor_ele.addEventListener('change', (event) => {
+                if (event.target.classList.contains('ss-cmd-form-type')) {
+                    event.target.closest('.ss-cmd-form').dataset.form = event.target.value;
+                }
+            });
+
+            // 分类内拖动排序: 类似 Chrome 标签页, 拖动对象沿列表方向跟随鼠标, 空位在槽间移动
+            let drag_row = null;
+            let drag_ghost = null;
+            let drag_started = false;
+            let drag_start_x = 0, drag_start_y = 0;
+            let drag_last_x = 0, drag_last_y = 0;
+            let drag_off_y = 0;
+            let drag_row_height = 0;
+            let reorder_token = 0;
+
+            // 只沿纵向跟随鼠标, 尺寸和横向位置与原来那一行完全一致
+            const position_ghost = (y) => {
+                if (!drag_ghost || !drag_row) return;
+                const row_rect = drag_row.getBoundingClientRect();
+                drag_ghost.style.left = row_rect.left + 'px';
+                drag_ghost.style.width = row_rect.width + 'px';
+                let top = y - drag_off_y;
+                const pane = editor_ele.closest('.simpleSearchSettingPanes');
+                if (pane) {
+                    const prect = pane.getBoundingClientRect();
+                    top = Math.max(prect.top, Math.min(top, prect.bottom - drag_row_height));
+                }
+                drag_ghost.style.top = top + 'px';
+            };
+
+            // 先记录旧位置, DOM 移动后用 transform 做 FLIP 过渡
+            const animate_reorder = (mutate) => {
+                if (!drag_row || !drag_row.parentElement) return;
+                const parent = drag_row.parentElement;
+                const rows = Array.from(parent.querySelectorAll('.ss-cmd-item'));
+                rows.forEach(row => { row.style.transition = 'none'; row.style.transform = ''; });
+                const before = new Map(rows.map(row => [row, row.getBoundingClientRect().top]));
+                mutate();
+                const token = ++reorder_token;
+                rows.forEach(row => {
+                    const delta = before.get(row) - row.getBoundingClientRect().top;
+                    if (!delta) return;
+                    row.style.transform = `translateY(${delta}px)`;
+                });
+                requestAnimationFrame(() => {
+                    if (token !== reorder_token) return;
+                    rows.forEach(row => {
+                        row.style.transition = 'transform 150ms ease';
+                        row.style.transform = '';
+                    });
+                });
+            };
+            // 根据鼠标位置, 把拖动的行移动到对应的空位
+            const update_drag_target = (x, y) => {
+                if (!drag_row) return;
+                const cat = drag_row.closest('.ss-cmd-cat');
+                if (!cat) return;
+                // 只在本分类范围内排序, 拖到其他分类时保持不动
+                const cat_rect = cat.getBoundingClientRect();
+                if (x < cat_rect.left || x > cat_rect.right || y < cat_rect.top || y > cat_rect.bottom) return;
+
+                const parent = drag_row.parentElement;
+                const rows = Array.from(parent.querySelectorAll('.ss-cmd-item')).filter(row => row !== drag_row);
+                let ref = null;
+                for (const row of rows) {
+                    const rect = row.getBoundingClientRect();
+                    if (y < rect.top + rect.height / 2) { ref = row; break; }
+                }
+                if (ref) {
+                    if (drag_row.nextElementSibling !== ref) {
+                        animate_reorder(() => parent.insertBefore(drag_row, ref));
+                    }
+                } else if (parent.lastElementChild !== drag_row) {
+                    animate_reorder(() => parent.appendChild(drag_row));
+                }
+            };
+            const on_drag_move = (event) => {
+                if (!drag_row) return;
+                drag_last_x = event.clientX;
+                drag_last_y = event.clientY;
+                if (!drag_started) {
+                    // 移动超过阈值才算拖动, 避免误触
+                    if (Math.abs(event.clientX - drag_start_x) + Math.abs(event.clientY - drag_start_y) < 4) return;
+                    drag_started = true;
+                    const rect = drag_row.getBoundingClientRect();
+                    drag_row_height = rect.height;
+                    drag_off_y = drag_start_y - rect.top;
+                    drag_ghost = drag_row.cloneNode(true);
+                    drag_ghost.classList.add('ss-cmd-drag-ghost');
+                    drag_ghost.style.transform = '';
+                    drag_ghost.style.transition = '';
+                    // 脱离原来的父级后, 保持与列表里完全一致的字体尺寸
+                    const row_style = getComputedStyle(drag_row);
+                    drag_ghost.style.fontSize = row_style.fontSize;
+                    drag_ghost.style.lineHeight = row_style.lineHeight;
+                    document.body.appendChild(drag_ghost);
+                    drag_row.classList.add('ss-cmd-item--placeholder');
+                    document.body.classList.add('ss-cmd-dragging');
+                }
+                event.preventDefault();
+                position_ghost(event.clientY);
+                // 靠近上下边缘时自动滚动
+                const pane = editor_ele.closest('.simpleSearchSettingPanes');
+                if (pane) {
+                    const prect = pane.getBoundingClientRect();
+                    const edge = 32;
+                    if (event.clientY < prect.top + edge) pane.scrollTop -= 16;
+                    else if (event.clientY > prect.bottom - edge) pane.scrollTop += 16;
+                }
+                update_drag_target(event.clientX, event.clientY);
+            };
+            const finish_drag = () => {
+                document.removeEventListener('pointermove', on_drag_move);
+                document.removeEventListener('pointerup', finish_drag);
+                document.removeEventListener('pointercancel', finish_drag);
+                if (drag_ghost) drag_ghost.remove();
+                if (drag_row) {
+                    drag_row.classList.remove('ss-cmd-item--placeholder');
+                    drag_row.style.transition = '';
+                    drag_row.style.transform = '';
+                }
+                document.body.classList.remove('ss-cmd-dragging');
+                drag_row = null;
+                drag_ghost = null;
+                drag_started = false;
+            };
+            editor_ele.addEventListener('pointerdown', (event) => {
+                if (event.button !== 0) return;
+                const handle = event.target.closest('.ss-cmd-drag');
+                if (!handle) return;
+                const row = handle.closest('.ss-cmd-item');
+                if (!row) return;
+                event.preventDefault();
+                drag_row = row;
+                drag_ghost = null;
+                drag_started = false;
+                drag_start_x = drag_last_x = event.clientX;
+                drag_start_y = drag_last_y = event.clientY;
+                document.addEventListener('pointermove', on_drag_move);
+                document.addEventListener('pointerup', finish_drag);
+                document.addEventListener('pointercancel', finish_drag);
+            });
+            // 拖动时滚轮正常滚动, 滚动后重新计算空位位置
+            editor_ele.addEventListener('wheel', () => {
+                if (!drag_started) return;
+                requestAnimationFrame(() => update_drag_target(drag_last_x, drag_last_y));
+            }, { passive: true });
+        }
+
+        // 指令配置: 恢复默认
+        const reset_btn = dialog.element.querySelector('#simpleSearchResetCommandConfig');
+        if (reset_btn) {
+            reset_btn.addEventListener('click', () => {
+                render_command_editor(get_default_command_config());
+            });
+        }
+
         const btns = dialog.element.querySelectorAll('.b3-dialog__action .b3-button');
         btns[0].addEventListener('click', () => dialog.destroy());
         btns[1].addEventListener('click', () => {
-            this.apply_setting_from_dialog(dialog.element);
+            // 把可视化编辑结果写回隐藏的 JSON 字段, 由 apply_setting_from_dialog 统一校验
+            if (editor_ele && json_ele && base_cfg) {
+                json_ele.value = JSON.stringify(read_command_config_from_editor(editor_ele, base_cfg));
+            }
+            if (this.apply_setting_from_dialog(dialog.element) === false) return;
             dialog.destroy();
         });
     }
     // 保存设置面板中的修改
     apply_setting_from_dialog(dialog_element) {
+        // 指令配置单独处理: JSON 解析 + 校验
+        const json_ele = dialog_element.querySelector('[data-key="command_config_json"]');
+        if (json_ele) {
+            let cfg;
+            try {
+                cfg = JSON.parse(json_ele.value);
+            } catch (e) {
+                alert('指令配置 JSON 解析失败: ' + e.message);
+                return false;
+            }
+            const err = validate_command_config(cfg);
+            if (err) {
+                alert('指令配置校验失败: ' + err);
+                return false;
+            }
+            this.g_setting.command_config = cfg;
+        }
         dialog_element.querySelectorAll('[data-key]').forEach(ele => {
             const key = ele.dataset.key;
+            if (key === 'command_config_json') return;
             if (ele.type === 'checkbox') {
                 this.g_setting[key] = ele.checked;
             } else if (ele.tagName === 'TEXTAREA') {
@@ -1391,10 +2290,19 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 this.g_setting[key] = ele.value;
             }
         });
+        set_log_level(this.g_setting.log_level);
         this.save_plugin_setting();
         this.init_css_style();
+        // 总开关立即生效: 关闭时不再接管事件, 并移除已插入的界面
+        this.sy_event_uninit();
+        if (this.g_setting.plugin_enabled === false) {
+            this.remove_plugin_ui();
+        } else {
+            this.sy_event_init();
+        }
         // 搜索面板不一定打开
         if (this.get_search_list()) this.show_search_res();
+        return true;
     }
     // 嵌入 信息显示框
     inseart_assist_area() {
@@ -1414,82 +2322,121 @@ class SimpleSearchHZ extends siyuan.Plugin {
     strong(str) {return `<span style="font-weight:bold">${str}</span>`};
     code(str) {return `<span class="fn__code">${str}</span>`};
     get_help_info_html() {
+        // 手册按当前指令配置生成: 设置里改名、加别名后会同步显示
+        let cfg = this.g_setting && this.g_setting.command_config;
+        let cfg_ok = false;
+        if (cfg) {
+            try { cfg_ok = !validate_command_config(cfg); } catch (e) { cfg_ok = false; }
+        }
+        if (!cfg_ok) cfg = get_default_command_config();
+
+        const cat_items = (id) => {
+            const cat = (cfg.categories || []).find(c => c && c.id === id);
+            // 关闭的项不出现在手册里
+            return ((cat && cat.items) || []).filter(i => i.enabled !== false);
+        };
+        const find_item = (cat_id, item_id) => cat_items(cat_id).find(i => i.id === item_id) || null;
+        const forms_of = (item) => item ? get_item_display_forms(item) : [];
+        const code = (s) => this.code(escapeHtml(String(s)));
+        const name_of = (item) => escapeHtml(String(item.name || item.id));
+        // 一个项的所有形式(或第一种): 指令:名称
+        const fmt = (item, all) => {
+            if (!item) return "";
+            const forms = forms_of(item);
+            const use = all ? forms : forms.slice(0, 1);
+            if (!use.length) return "";
+            return `${use.map(code).join(" / ")}:${name_of(item)}`;
+        };
+        const list = (items, all) => items.map(it => fmt(it, all)).filter(Boolean).join(" | ");
+        const join2 = (a, b) => [a, b].filter(Boolean).join("/");
+
+        const rows = [];
+        const add_row = (label, html) => {
+            if (!html) return;
+            rows.push(`<tr><td>${this.strong(" " + label + ": ")}</td><td colspan="3">${html}</td></tr>`);
+        };
+
+        // 搜索方式
+        add_row("搜索方式", list(cat_items('mode'), true));
+
+        // 块类型: 单字符和多字符分两行显示
+        const type_items = cat_items('type');
+        const single_types = type_items.filter(it => {
+            const first = forms_of(it)[0] || "";
+            return first.startsWith("-") && !first.startsWith("--");
+        });
+        const multi_types = type_items.filter(it => single_types.indexOf(it) === -1);
+        let heading_note = "";
+        const heading_item = type_items.find(it => it.kind === 'heading');
+        if (heading_item && forms_of(heading_item).length) {
+            heading_note = ` (${code(forms_of(heading_item)[0] + '13')} 表示 1、3 级标题)`;
+        }
+        add_row("块类型过滤", list(single_types, true) + heading_note);
+        // 多字符类型 + kv 逗号多值的说明
+        let type_kv_note = "";
+        const first_kv = type_items.reduce((found, it) =>
+            found || (it.comms || []).find(c => c.form === 'kv' && c.key), null);
+        if (first_kv) {
+            const vals = type_items.map(it => {
+                const c = (it.comms || []).find(x => x.form === 'kv' && x.key === first_kv.key);
+                return c ? c.value : "";
+            }).filter(Boolean).slice(0, 2);
+            type_kv_note = `; ${code(first_kv.key + (vals.join(",") || "值"))} 可用逗号写多个值`;
+        }
+        const multi_type_html = list(multi_types, true);
+        if (multi_type_html || type_kv_note) {
+            rows.push(`<tr><td></td><td colspan="3">${multi_type_html}${type_kv_note}</td></tr>`);
+        }
+
+        // 路径
+        let path_html = list(cat_items('path'), true);
+        const all_item = find_item('path', 'all');
+        const all_multi = all_item ? (all_item.comms || []).find(c => c.form === 'multi') : null;
+        if (all_multi && all_multi.content) {
+            path_html += `; ${code(all_multi.content)} 单独输入表示全部文档, ${code(all_multi.content + '路径')} 表示全文档下过滤路径`;
+        }
+        add_row("路径", path_html);
+
+        // 时间: 比较符和 and/or 是内置语法
+        const ct_item = find_item('time', 'ct');
+        const ut_item = find_item('time', 'ut');
+        const time_base = (item) => {
+            if (!item) return "";
+            const multi = (item.comms || []).find(c => c.form === 'multi');
+            if (multi) return multi.content;
+            const kv = (item.comms || []).find(c => c.form === 'kv');
+            return kv ? kv.key + (kv.value || "") : "";
+        };
+        const ct_token = time_base(ct_item);
+        const ut_token = time_base(ut_item);
+        let time_html = "";
+        if (ct_token || ut_token) {
+            const parts = [];
+            const before = join2(ct_token && code(ct_token + '>2025'), ut_token && code(ut_token + '<2026'));
+            if (before) parts.push(`${before}: 2025 年之前创建/更新`);
+            const exact = join2(ct_token && code(ct_token + '=20251001123456'), ut_token && code(ut_token + '=20251001123456'));
+            if (exact) parts.push(`${exact}: 精确到秒`);
+            const conds = [];
+            if (ct_token) conds.push(ct_token + '>2025&' + ct_token + '<2027');
+            if (ut_token) conds.push(ut_token + '=2024');
+            if (conds.length) parts.push(`${code(conds.join("|"))}: & 表示并且, | 表示或者`);
+            const time_kv = ct_item ? (ct_item.comms || []).find(c => c.form === 'kv') : null;
+            if (time_kv) parts.push(`${code(time_kv.key + (time_kv.value || ct_token) + '>2025')}: kv 写法`);
+            time_html = parts.join(" | ");
+        }
+        add_row("时间过滤", time_html);
+
+        // 分组 & 排序
+        add_row("分组", list(cat_items('group'), true));
+        add_row("排序", list(cat_items('sort'), true));
+
+        // 扩展
+        add_row("其他", list(cat_items('ext'), true));
+
         return `<div id="simpleSearchHelpTable">
-        <span style="font-size: 16px; font-weight:bold">简搜插件指令速查手册: </span><span> (温馨提示: 拖动方框右下角可以调整显示区域)</span>
+        <span style="font-size: 16px; font-weight:bold">简搜插件指令速查手册: </span><span> (按“设置 → 指令配置”生成; 拖动方框右下角可以调整显示区域)</span>
         <table><tbody>
-        <tr>
-            <td colspan="1">${this.strong(" 搜索方式: ")}</td>
-            <td>${this.code("-w")}:关键字搜索</td>
-            <td>${this.code("-q")}:查询语法</td>
-            <td>${this.code("-s")}:SQL语句搜索</td>
-            <td>${this.code("-r")}:正则表达式</td>
-        </tr>
-        <tr>
-            <td colspan="1" rowspan="5">${this.strong(" 块类型过滤: ")}</td>
-            <td>${this.code("-d")}:文档块</td>
-            <td>${this.code("-h")}:标题块</td>
-            <td>${this.code("-h13")}:1、3级标题</td>
-            <td>${this.code("-p")}:段落块</td>
-        </tr>
-        <tr>
-            <td>${this.code("-c")}:代码块</td>
-            <td>${this.code("-b")}:引述块</td>
-            <td colspan="2">${this.code("-L")}:表示带有链接的块(非思源标准的块类型)</td>
-        </tr>
-        <tr>
-            <td colspan="3">${this.code("-l")}:列表块(包含有序列表块、无序列表块和任务列表块)</td>
-            <td>${this.code("-i")}:列表项块</td>
-        </tr>
-        <tr>
-            <td>${this.code("-t")}:表格块</td>
-            <td>${this.code("-m")}:数学公式块</td>
-            <td colspan="2">${this.code("-s")}:超级块(-s不能放到开头, 否则会和sql搜索冲突)</td>
-        </tr>
-        <tr>
-            <td colspan="2">${this.code("-o")}:小写o, 未完成的待办项(todo)</td>
-            <td colspan="2">${this.code("-O")}:大写o, 已完成的待办项(done)</td>
-        </tr>
-        <tr>
-            <td colspan="1" rowspan="2">${this.strong(" 路径过滤: ")}</td>
-            <td colspan="2">${this.code("//")}:在所有文档里面搜索</td>
-            <td>${this.code("/")}:过滤文档路径</td>
-            <td>${this.code("-/")}:排除路径</td>
-        </tr>
-        <tr>
-            <td colspan="2">${this.code("-k")}:小写k, 在当前文档搜索</td>
-            <td colspan="2">${this.code("-K")}:大写k, 在当前文档及子文档搜索</td>
-        </tr>
-        <tr>
-            <td colspan="1" rowspan="2">${this.strong(" 时间过滤: ")}</td>
-            <td colspan="2">${this.code("ct<2025")}/${this.code("ut<2025")}:查询2025年之前创建/更新的内容</td>
-            <td colspan="2">${this.code("ct=20251001123456")}/${this.code("ut=20251001123456")}:查询2025年10月1号12:34:56创建/更新的内容</td>
-        </tr>
-        <tr>
-            <td colspan="2">${this.code("ct>2025")}/${this.code("ut>2025")}:查询2025年之后创建/更新的内容</td>
-            <td colspan="2">${this.code("ct>2025&ct<2027|ut=2024")}:查询2025-2027年期间创建 或 2024年更新的内容</td>
-        </tr>
-        <tr>
-            <td colspan="1" rowspan="3">${this.strong(" 分组&排序: ")}</td>
-            <td colspan="2">${this.code("g<")}/${this.code("g>")}:按照文档分组</td>
-            <td colspan="2">${this.code("nog<")}/${this.code("nog>")}:不按文档分组</td>
-        </tr>
-        <tr>
-            <td colspan="2">${this.code("type<")}/${this.code("type>")}:按照类型排序</td>
-            <td colspan="2">${this.code("cont<")}/${this.code("cont>")}:原文内容顺序</td>
-        </tr>
-        <tr>
-            <td>${this.code("ct<")}:创建时间升序</td>
-            <td>${this.code("ct>")}:创建时间降序</td>
-            <td>${this.code("ut<")}:更新时间升序</td>
-            <td>${this.code("ut>")}:更新时间降序</td>
-        </tr>
-        <tr>
-            <td colspan="1" rowspan="2">${this.strong(" 其他: ")}</td>
-            <td colspan="4">${this.code("--")}"+要排除的关键词，排除指定关键词</td></tr>
-        </tr>
-        <tr>
-            <td colspan="4">${this.code("-e")}":文档模式, 在符合条件的文档下进行搜索</td>
-        </tr>
+        ${rows.join("\n        ")}
         </tbody></table>
         </div>`
     }
@@ -1865,7 +2812,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
     handle_open_search_page(detail) {
         // 打上标记
         if (this.page.classList.contains('HZ-simple-search-page')) return;
-        mylog('第一次打开搜索页面');
+        mylog_info('第一次打开搜索页面');
         this.page.classList.add('HZ-simple-search-page');
 
         // 在搜索页面嵌入: 快捷操作区域
@@ -1925,6 +2872,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         }
         // 转换搜索内容, 传入 ignoredInputs 配置
         query_arg.ignoredInputs = this.g_setting.ignored_inputs;
+        query_arg.command_config = this.g_setting.command_config;
         this.query = search_translator(query_arg);
         const res = this.query;
         // 根据转换后的内容, 设置相应的变量
@@ -1979,8 +2927,18 @@ class SimpleSearchHZ extends siyuan.Plugin {
         }
         custom_path = custom_path ? custom_path.slice(5) : "全部"
         let block_type = "";
-        Object.entries(help.block_type).forEach(([key, val]) => block_type += `[${this.code('-'+key)}${val}],`);
+        Object.entries(help.block_type).forEach(([key, val]) => {
+            // 优先使用配置中的指令形式(设置里改名/加别名后同步); 老数据回退到默认规则
+            const cmd = (help.type_cmd && help.type_cmd[key])
+                || (key === 's' ? '-S'
+                    : (key.length > 1 && !/^h[1-6]+$/.test(key)) ? '--' + key
+                    : '-' + key);
+            block_type += `[${this.code(escapeHtml(cmd))}${val}],`;
+        });
         block_type = block_type ? block_type.slice(0, -1) : "未识别";
+        const errors = (help.errors && help.errors.length)
+            ? `<tr><td style="color: var(--b3-theme-error);">指令提示:</td><td colspan="3" style="color: var(--b3-theme-error);">${help.errors.map(escapeHtml).join('<br>')}</td></tr>`
+            : "";
         return `
         <span style="font-size: 16px; font-weight:bold">简搜: 解析结果 </span><span> (温馨提示: 拖动方框右下角可以调整显示区域)</span>
         <table id="simpleSearchAnalysisResTable"><tbody>
@@ -1989,7 +2947,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         <tr><td>类型过滤:</td><td colspan="3">${block_type}</td></tr>
         <tr><td>路径过滤:</td><td colspan="3">${custom_path}</td></tr>
         <tr><td>时间过滤:</td><td colspan="3">${custom_time}</td></tr>
-        <tr><td>排序方式:</td><td colspan="3">${help.sort}</td></tr>
+        <tr><td>分组排序:</td><td colspan="3">${help.group_desc || "—"} | ${help.sort}</td></tr>
+        ${errors}
         <tr><td style="min-width:70px;">转换结果:</td><td colspan="3">${this.code(help.ret_str)}</td></tr>
         </tbody></table>`
     }
@@ -2548,7 +3507,17 @@ class SimpleSearchHZ extends siyuan.Plugin {
         if (this._on_loaded_protyle_static) this.eventBus.off("loaded-protyle-static", this._on_loaded_protyle_static);
         if (this._on_switch_protyle) this.eventBus.off("switch-protyle", this._on_switch_protyle);
     }
+    // 关闭总开关时, 移除已经插入到搜索界面里的元素
+    remove_plugin_ui() {
+        ['#simpleSearchShowSw', '#simpleSearchHelp', '#simpleSearchQuickJump',
+         '#simpleSearchAssistArea', '#simpleSearchHistoryList'].forEach(sel => {
+            document.querySelectorAll(sel).forEach(ele => ele.remove());
+        });
+        this.clear_highlight();
+    }
     sy_event_init() {
+        // 总开关关闭时不接管任何事件
+        if (this.g_setting && this.g_setting.plugin_enabled === false) return;
         // 绑定结果只创建一次, on/off 必须使用同一个函数引用
         if (!this._on_input_search) {
             this._on_input_search = this.inputSearchEvent.bind(this);
@@ -2577,11 +3546,17 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 }
                 Object.assign(this.g_setting, settingFile);
             }catch(e){
-                mylog("og-fdb载入配置时发生错误, 使用默认配置", e);
+                mylog_error("og-fdb载入配置时发生错误, 使用默认配置", e);
             }
+            // 指令配置缺失或损坏时使用默认值
+            if (!this.g_setting.command_config || !Array.isArray(this.g_setting.command_config.categories)) {
+                this.g_setting.command_config = get_default_command_config();
+            }
+            // 应用日志等级
+            set_log_level(this.g_setting.log_level);
             func();
         }, (e)=> {
-            mylog("配置文件读入失败", e);
+            mylog_error("配置文件读入失败", e);
         });
     }
     save_plugin_setting(){
@@ -2600,6 +3575,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
 
         this.query        = {type:"", val:"", keywords:[], help:{}}; // 解析后的内容 {type: 搜索类型, val: 搜索内容, keywords: 关键词}
         this.g_setting    = {
+            plugin_enabled    : true,           // 插件总开关
+            log_level         : 'info',         // 日志等级: off/error/warn/info/debug
             assist_sw         : true,           // 辅助信息显示框 是否显示
             history_auto      : 'smart',        // 自动显示历史记录: close-关闭, smart-智能显示, always-总是显示
             replace_history   : true,           // 取代历史记录
@@ -2612,6 +3589,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             is_blink_open     : false,          // 通过 双击/回车 跳转到对应位置后, 闪烁当前的块
             cursor_position   : "after",        // 通过 双击/回车 跳转到对应位置后, 光标效果: 不处理:none, 之前:before, 选中:select, 之后:after
             ignored_inputs    : ["/", "//", "-", "--"], // 需要阻止搜索的特殊输入
+            command_config    : null,           // 指令配置(分类/key/三种形式), 首次加载时用默认值
         }
         this.load_plugin_setting(() => {
             this.save_plugin_setting();
@@ -2620,7 +3598,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             // 重新加载后, 上次搜索历史会丢, 这里重新赋值一下
             // SYT.set_last_search_k();
 
-            console.log("HZ simple search start...")
+            mylog_info("HZ simple search start...")
         });
     }
 
@@ -2628,7 +3606,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         if (window.siyuan.isPublish) return;
         this.uninit_css_style();
         this.sy_event_uninit()
-        console.log("HZ simple search stop...")
+        mylog_info("HZ simple search stop...")
     }
 };
 
