@@ -316,12 +316,29 @@ function is_prefix_item(item) {
     return false;
 }
 
+// 各类指令项允许的形式:
+// 路径过滤、排除路径: 指令后面必须直接跟路径, 只允许多字符
+// 全文档: 支持单字符和多字符, 路径内容由输入决定, 不支持 kv
+// 其他项: 三种形式都可以
+function get_allowed_command_forms(item) {
+    if (item && item.kind === 'path') {
+        if (item.action === 'all') return ['single', 'multi'];
+        return ['multi'];
+    }
+    return ['single', 'multi', 'kv'];
+}
+
+function is_command_form_allowed(item, form) {
+    return get_allowed_command_forms(item).includes(form);
+}
+
 // 一个指令项在帮助/解析面板中的展示形式
 // 路径、时间、排除关键词这类前缀指令, 多字符形式后面还要接内容
 function get_item_display_forms(item) {
     const forms = [];
     const add = (s) => { if (s && !forms.includes(s)) forms.push(s); };
     for (const c of (item.comms || [])) {
+        if (!is_command_form_allowed(item, c.form)) continue;
         if (c.form === 'single') {
             add('-' + c.content);
         } else if (c.form === 'multi') {
@@ -335,6 +352,7 @@ function get_item_display_forms(item) {
             if (item.kind === 'path') val = '路径';
             else if (item.kind === 'time') val = (val || '') + '>2025';
             else if (item.kind === 'ext' && item.action === 'not') val = '关键词';
+            else if (item.kind === 'heading' && !val) val = ''; // 标题级别直接接在 = 后面
             else if (!val) val = '值';
             add(c.key + val);
         }
@@ -349,6 +367,7 @@ function build_command_registry(cfg) {
         single: new Map(),       // 字符 -> {cat, item}
         multi_exact: new Map(),  // 完整 token -> {cat, item}
         multi_prefix: [],        // {token, cat, item}
+        heading_multi: [],       // 标题多字符形式, 后面可接级别数字 1-6
         kv_groups: new Map(),    // key -> [{cat, item, value}]
         modes: [],               // {single|token|key, value, item}
         type_cmd_map: new Map(), // 类型码 -> 展示用指令(取配置中的第一种形式)
@@ -366,8 +385,15 @@ function build_command_registry(cfg) {
                     if (c.form === 'single') {
                         reg.disabled_single.set(c.content, { cat: cat.id, item });
                     } else if (c.form === 'multi') {
-                        if (is_prefix_item(item)) reg.disabled_prefix.push({ token: c.content, cat: cat.id, item });
-                        else reg.disabled_exact.set(c.content, { cat: cat.id, item });
+                        if (is_prefix_item(item)) {
+                            reg.disabled_prefix.push({ token: c.content, cat: cat.id, item });
+                        } else {
+                            reg.disabled_exact.set(c.content, { cat: cat.id, item });
+                        }
+                        // 标题多字符形式还可以带级别数字
+                        if (item.kind === 'heading') {
+                            reg.disabled_prefix.push({ token: c.content, cat: cat.id, item, heading: true });
+                        }
                     } else if (c.form === 'kv' && c.key) {
                         reg.disabled_kv.push({ key: c.key, value: c.value || '', cat: cat.id, item });
                     }
@@ -383,6 +409,7 @@ function build_command_registry(cfg) {
                 else if (item.kind === 'link') reg.type_cmd_map.set('L', cmd);
             }
             for (const c of (item.comms || [])) {
+                if (!is_command_form_allowed(item, c.form)) continue;
                 if (c.form === 'single') {
                     if (cat.id === 'mode') reg.modes.push({ single: c.content, item });
                     else reg.single.set(c.content, { cat: cat.id, item });
@@ -390,6 +417,10 @@ function build_command_registry(cfg) {
                     if (cat.id === 'mode') reg.modes.push({ token: c.content, item });
                     else if (is_prefix_item(item)) reg.multi_prefix.push({ token: c.content, cat: cat.id, item });
                     else reg.multi_exact.set(c.content, { cat: cat.id, item });
+                    // 标题多字符形式允许在末尾追加级别数字
+                    if (cat.id !== 'mode' && item.kind === 'heading') {
+                        reg.heading_multi.push({ token: c.content, cat: cat.id, item });
+                    }
                 } else if (c.form === 'kv') {
                     if (cat.id === 'mode') reg.modes.push({ key: c.key, value: c.value || '', item });
                     else {
@@ -401,6 +432,7 @@ function build_command_registry(cfg) {
         }
     }
     reg.multi_prefix.sort((a, b) => b.token.length - a.token.length);
+    reg.heading_multi.sort((a, b) => b.token.length - a.token.length);
     return reg;
 }
 
@@ -417,6 +449,7 @@ function validate_command_config(cfg) {
             if (!Array.isArray(item.comms)) return `项 ${item.id} 缺少 comms`;
             for (const c of item.comms) {
                 if (c.form === 'single') {
+                    if (!is_command_form_allowed(item, 'single')) continue;
                     if (typeof c.content !== 'string' || [...c.content].length !== 1) return `单字符必须是 1 个字符: ${c.content}`;
                     if (singles.has(c.content)) return `单字符重复: ${c.content}`;
                     singles.add(c.content);
@@ -425,6 +458,7 @@ function validate_command_config(cfg) {
                     if (multis.has(c.content)) return `多字符重复: ${c.content}`;
                     multis.add(c.content);
                 } else if (c.form === 'kv') {
+                    if (!is_command_form_allowed(item, 'kv')) continue;
                     if (!c.key) return `kv 缺少 key: ${item.id}`;
                     const sig = JSON.stringify([c.key, c.value || '']);
                     if (kvs.has(sig)) return `kv 重复: ${c.key}${c.value || ''}`;
@@ -441,12 +475,113 @@ function validate_command_config(cfg) {
 // ===== 指令配置可视化编辑器 =====
 const COMMAND_FORM_LABELS = { single: '单字符', multi: '多字符', kv: 'kv' };
 
-// 一行指令形式的编辑控件
-function get_command_editor_form_html(comm) {
+// 需要额外说明的指令项
+const COMMAND_ITEM_INFOS = {
+    h: `标题块
+· 在命令末尾加级别 1-6
+· 13 表示 1 级和 3 级
+· 单字符：如填 h → 输入 -h13
+· 多字符：如填 --heading → 输入 --heading13
+· kv：如 --type= + heading → 输入 --type=heading13
+· kv：如 --hl= 不填值 → 输入 --hl=13
+· 级别写错时，整段按关键词搜索`,
+    path: `路径过滤
+· 只能配多字符，后面直接接路径
+· /笔记/项目：路径依次包含“笔记”和“项目”
+· 只写路径时，最后一段当文档名；如 /笔记/项目 只搜文档名含“项目”的文档
+· 路径里不能有空格
+· 不要只填字母（如 bb），否则 bbq 会被当成路径 q
+· 建议用 / 这类符号开头`,
+    all: `全文档
+· 作用：忽略页面路径，搜索所有笔记本
+· 支持单字符和多字符，不支持 kv
+· -a：搜索全部
+· //笔记：在所有笔记本中搜索路径含“笔记”的结果
+· 不要只填字母（如 bb），否则 bbq 会被当成“全文档 + 路径 q”
+· 建议用 // 这类符号
+· 和 -k/-K 同时输入时，以当前文档为准`,
+    not_path: `排除路径
+· 只能配多字符，后面直接接路径
+· -/草稿：排除路径中含“草稿”的结果
+· 不要只填字母（如 not），否则 notebook 会被当成排除 ebook 路径
+· 建议用 -/ 这类符号
+· 只写排除路径时，搜索范围会很大`,
+    ct: `创建时间
+· 比较符：> < =
+· = 表示以该时间开头
+· 时间写 1-14 位数字
+· & 并且，| 或者
+· 示例：ct>2025、ct=20251001`,
+    ut: `更新时间
+· 比较符：> < =
+· = 表示以该时间开头
+· 时间写 1-14 位数字
+· & 并且，| 或者
+· 示例：ut>2025、ut=20251001`,
+    not: `排除关键词
+· 写在要排除的词前面，如 !广告
+· 普通模式下按块排除
+· 文档模式下会排除整篇文档
+· 不要只填字母（如 not），否则 notebook 会被当成排除 ebook 这个词
+· 建议用 ! 这类符号`,
+    docmode: `文档模式
+· 关键词按整篇文档判断
+· 文档里包含所有关键词就算匹配
+· 命中的块只需包含其中任意一个
+· 普通模式要求同一个块包含所有关键词
+· !排除词会排除整篇文档
+· 类型、时间、路径仍按块过滤
+· 结果仍显示块，不是文档列表`,
+    keyword: `关键字搜索
+· 模式指令可写在任意位置
+· 其余内容原样作为关键词
+· 示例：-w 关键词
+· 也可连写：-w关键词`,
+    query: `查询语法
+· 模式指令可写在任意位置
+· 其余内容原样作为查询语法
+· 示例：-q 中国 OR 历史
+· 也可连写：-q查询`,
+    sql: `SQL
+· 模式指令可写在任意位置
+· 其余内容原样作为 SQL
+· 示例：-s select ...
+· 也可连写：-sselect ...`,
+    regex: `正则表达式
+· 模式指令可写在任意位置
+· 其余内容原样作为正则
+· 示例：-r 正则
+· 也可连写：-r正则`,
+    doc: `按文档分组
+· g< 或 g> 都可以，不表示方向
+· 同时写多个时，最后一个生效`,
+    none: `不分组
+· nog< 或 nog> 都可以，不表示方向
+· 同时写多个时，最后一个生效`,
+};
+
+function has_command_item_info(item) {
+    return !!(item && COMMAND_ITEM_INFOS[item.id]);
+}
+
+function get_command_info_html(text) {
+    if (!text) return "";
+    return `<span class="ss-cmd-info" tabindex="0" aria-label="${escapeHtml(text)}"><svg><use xlink:href="#iconInfo"></use></svg></span>`;
+}
+
+function get_command_item_info_html(item) {
+    return get_command_info_html(item && COMMAND_ITEM_INFOS[item.id]);
+}
+
+// 一行指令形式的编辑控件; allowed_forms 指定可选的形式
+function get_command_editor_form_html(comm, allowed_forms) {
     const c = comm || { form: 'multi', content: '' };
-    const form = c.form || 'multi';
-    const opts = Object.keys(COMMAND_FORM_LABELS).map(v =>
-        `<option value="${v}"${v === form ? ' selected' : ''}>${COMMAND_FORM_LABELS[v]}</option>`).join("");
+    let form = c.form || 'multi';
+    const labels = {};
+    for (const v of (allowed_forms || Object.keys(COMMAND_FORM_LABELS))) labels[v] = COMMAND_FORM_LABELS[v];
+    if (!labels[form]) form = 'multi';
+    const opts = Object.keys(labels).map(v =>
+        `<option value="${v}"${v === form ? ' selected' : ''}>${labels[v]}</option>`).join("");
     return `<div class="ss-cmd-form" data-form="${form}">
         <select class="b3-select ss-cmd-form-type">${opts}</select>
         <input class="b3-text-field ss-cmd-single" maxlength="1"
@@ -456,7 +591,7 @@ function get_command_editor_form_html(comm) {
         <input class="b3-text-field ss-cmd-kv-key"
             value="${escapeHtml(c.form === 'kv' ? (c.key || '') : '')}" placeholder="key, 如 --type=">
         <input class="b3-text-field ss-cmd-kv-value"
-            value="${escapeHtml(c.form === 'kv' ? (c.value || '') : '')}" placeholder="值(可空)">
+            value="${escapeHtml(c.form === 'kv' ? (c.value || '') : '')}" placeholder="值, 如 callout">
         <button type="button" class="ss-cmd-del-form" data-action="del-form" title="删除该形式" aria-label="删除该形式">×</button>
     </div>`;
 }
@@ -473,14 +608,17 @@ function get_command_editor_html(cfg) {
             </div>
             <div class="ss-cmd-items">
                 ${(cat.items || []).map(item => `
-                    <div class="ss-cmd-item" data-item-id="${escapeHtml(item.id)}" data-enabled="${item.enabled === false ? 'false' : 'true'}">
+                    <div class="ss-cmd-item" data-item-id="${escapeHtml(item.id)}" data-enabled="${item.enabled === false ? 'false' : 'true'}" data-allowed-forms="${get_allowed_command_forms(item).join(',')}" data-info="${has_command_item_info(item) ? 'true' : 'false'}">
                         <span class="ss-cmd-drag" title="拖动调整顺序">⠿</span>
                         <input class="b3-switch ss-cmd-enabled" type="checkbox" ${item.enabled === false ? "" : "checked"} title="启用/禁用该项">
                         <div class="ss-cmd-item-info">
                             <span class="ss-cmd-item-name">${escapeHtml(item.name || item.id)}</span>
-                            <span class="ss-cmd-item-hint">${escapeHtml(item.id)}</span>
+                            <span class="ss-cmd-item-hint">${escapeHtml(item.kind === 'heading' ? item.id + ' · 级别后缀 1-6' : item.id)}</span>
+                            ${get_command_item_info_html(item)}
                         </div>
-                        <div class="ss-cmd-forms">${(item.comms || []).map(get_command_editor_form_html).join("")}</div>
+                        <div class="ss-cmd-forms">${(item.comms || [])
+                            .filter(c => get_allowed_command_forms(item).includes(c.form))
+                            .map(c => get_command_editor_form_html(c, get_allowed_command_forms(item))).join("")}</div>
                         <div class="ss-cmd-item-actions">
                             <button type="button" class="ss-cmd-reset-item" data-action="reset-item" title="恢复该项默认" aria-label="恢复该项默认">↺</button>
                             <button type="button" class="ss-cmd-add-form" data-action="add-form" title="添加形式" aria-label="添加形式">+</button>
@@ -508,6 +646,7 @@ function read_command_config_from_editor(container, base_cfg) {
             const comms = [];
             item_node.querySelectorAll('.ss-cmd-form').forEach(row => {
                 const form = row.querySelector('.ss-cmd-form-type').value;
+                if (!is_command_form_allowed(item, form)) return;
                 if (form === 'single') {
                     const content = row.querySelector('.ss-cmd-single').value.trim();
                     if (content) comms.push({ form: 'single', content });
@@ -889,6 +1028,7 @@ function search_translator(arg) {
         }
     };
     // 处理 kv: 同一个 key 下的值, 逗号分隔可以写多个
+    // 标题的 kv 值后面可以接级别数字(1-6), 级别非法时整个 token 退化为关键词
     const _apply_kv = function(group, payload, key) {
         const parts = payload.split(',').map(s => s.trim()).filter(s => s);
         if (!parts.length) { help.errors.push(`kv 指令缺少值: ${payload}`); return; }
@@ -898,6 +1038,10 @@ function search_translator(arg) {
             const disabled = (reg.disabled_kv || []).find(g => {
                 if (g.key !== key) return false;
                 if (g.item.kind === 'time') return g.value && part.startsWith(g.value);
+                if (g.item.kind === 'heading' && g.value) {
+                    return part === g.value ||
+                        (part.startsWith(g.value) && /^[1-6]+$/.test(part.slice(g.value.length)));
+                }
                 return g.value === '' || part === g.value;
             });
             if (disabled) {
@@ -911,22 +1055,57 @@ function search_translator(arg) {
             keywords.push(token);
             return;
         }
+        // 先全部匹配, 避免部分值生效后才发现标题级别非法
+        const actions = [];
         for (const part of parts) {
             let matched = null;
             for (const g of group) {
                 if (g.item.kind === 'time') {
                     // 时间的值是指段前缀, 后面还可以接比较符
                     if (g.value && part.startsWith(g.value)) { matched = g; break; }
+                } else if (g.item.kind === 'heading') {
+                    if (g.value === '') {
+                        // value 为空: 由输入内容决定级别
+                        if (/^[1-6]+$/.test(part)) { matched = g; break; }
+                    } else if (part === g.value) {
+                        matched = g; break;
+                    } else if (part.startsWith(g.value) && /^[1-6]+$/.test(part.slice(g.value.length))) {
+                        matched = g; break;
+                    }
                 } else if (g.value === '' || part === g.value) {
                     matched = g; break;
                 }
             }
-            if (!matched) { help.errors.push(`未识别的值: ${part}`); continue; }
+            if (!matched) {
+                // 看起来是给标题指定级别, 但级别不合法
+                const heading_attempt = group.some(g => g.item.kind === 'heading' &&
+                    (g.value === '' || part.startsWith(g.value)));
+                if (heading_attempt) {
+                    const token = key + payload;
+                    help.errors.push(`未识别的指令, 已按关键词搜索: ${token}`);
+                    keywords.push(token);
+                    return;
+                }
+                help.errors.push(`未识别的值: ${part}`);
+                continue;
+            }
+            let item_payload = '';
             if (matched.item.kind === 'time') {
-                if (!_parse_time(part)) help.errors.push(`时间格式错误: ${part}`);
-            } else {
+                item_payload = part;
+            } else if (matched.item.kind === 'heading' && matched.value !== '') {
+                // 固定值后面直接接级别数字
+                item_payload = part === matched.value ? '' : part.slice(matched.value.length);
+            } else if (matched.value === '') {
                 // value 为空表示由用户输入(路径/排除词这类动态值)
-                _apply_item(matched, matched.value === '' ? part : '');
+                item_payload = part;
+            }
+            actions.push({ matched, payload: item_payload });
+        }
+        for (const action of actions) {
+            if (action.matched.item.kind === 'time') {
+                if (!_parse_time(action.payload)) help.errors.push(`时间格式错误: ${action.payload}`);
+            } else {
+                _apply_item(action.matched, action.payload);
             }
         }
     };
@@ -954,6 +1133,9 @@ function search_translator(arg) {
     // 判断 token 是否是已注册的指令(不产生副作用)
     const _is_registered_token = function(token) {
         if (reg.multi_exact.has(token)) return true;
+        for (const p of reg.heading_multi) {
+            if (token.startsWith(p.token) && /^[1-6]*$/.test(token.slice(p.token.length))) return true;
+        }
         for (const [key] of reg.kv_groups) if (token.startsWith(key)) return true;
         for (const p of reg.multi_prefix) if (token.startsWith(p.token)) return true;
         return !!_parse_single_combo(token);
@@ -970,6 +1152,8 @@ function search_translator(arg) {
             if (!rest) continue;
             // 时间要带比较符, 避免把 ctf 这类普通词误判成关闭的 ct
             if (p.item.kind === 'time' && !/^[>=<]/.test(rest)) continue;
+            // 标题多字符形式后面只允许级别数字
+            if (p.heading && !/^[1-6]+$/.test(rest)) continue;
             return { names: [name_of(p.item)] };
         }
         for (const g of reg.disabled_kv) {
@@ -1011,7 +1195,15 @@ function search_translator(arg) {
             _apply_item(reg.multi_exact.get(token), '');
             return true;
         }
-        // 2. kv / 多字符前缀, 取最长匹配
+        // 2. 标题的多字符形式: 末尾可以带级别数字 1-6
+        for (const p of reg.heading_multi) {
+            if (!token.startsWith(p.token)) continue;
+            const rest = token.slice(p.token.length);
+            if (!/^[1-6]*$/.test(rest)) continue;
+            _apply_item({ cat: p.cat, item: p.item }, rest);
+            return true;
+        }
+        // 3. kv / 多字符前缀, 取最长匹配
         let best = null;
         for (const [key, group] of reg.kv_groups) {
             if (token.startsWith(key) && (!best || key.length > best.len)) {
@@ -1169,19 +1361,22 @@ function search_translator(arg) {
                 Array.from(basic_type).forEach((type_once) => help.block_type[type_once] = blockHelpMap[type_once]);
                 return `type regexp '^[${basic_type}]$'`
             },
-            // 搜索子标题的sql语句
+            // 搜索子标题的sql语句: 多次指定标题级别时取并集
             "h[1-6]*": (types) => {
-                types = types.match(/h[1-6]*/g)[0];
+                const matches = types.match(/h[1-6]*/g) || [];
                 const headType = `type regexp '^[h]$'`;
-                const subType = types.replace(/[^\d]/g, "");
+                // 单独的 h 表示所有标题
+                if (matches.includes('h')) {
+                    help.block_type['h'] = "标题";
+                    return headType;
+                }
+                const subType = [...new Set(matches.join("").replace(/[^\d]/g, "").split(""))]
+                    .sort().join("");
                 if (subType == '') {
                     help.block_type['h'] = "标题";
                     return headType;
                 }
-                else {
-                    help.block_type[types] = `${[...new Set(subType.split(''))].join(',')}级标题`;
-                    return `(${headType} and subtype regexp '^h[${subType}]$')`;
-                }
+                return `(${headType} and subtype regexp '^h[${subType}]$')`;
             },
             // 搜索待办的sql语句
             "[oO]": (types) => {
@@ -1989,8 +2184,13 @@ class SimpleSearchHZ extends siyuan.Plugin {
                         <div class="fn__flex-1">
                             <div class="config-name">指令配置</div>
                             <div class="b3-label__text">
-                                每一项可以配置多个“形式”：<br>
-                                单字符只填字符，程序自动补 <span class="fn__code">-</span>；多字符填完整 token；kv 填 key 和值（key 要带结尾的 <span class="fn__code">=</span>，值可留空表示由输入内容决定）。<br>
+                                每一项可以配置多个“形式”，不同项支持的形式可能不同：<br>
+                                · 单字符：只填字符，输入时加 <span class="fn__code">-</span>，例如 <span class="fn__code">h</span> 对应 <span class="fn__code">-h</span>。<br>
+                                · 多字符：填指令本身，例如 <span class="fn__code">--callout</span>；路径、时间这类指令，后面的内容会作为参数。<br>
+                                · kv：填 key 和值，key 末尾要带 <span class="fn__code">=</span>，例如 <span class="fn__code">--type=</span> 和 <span class="fn__code">callout</span> 组成 <span class="fn__code">--type=callout</span>。<br>
+                                路径过滤、排除路径只支持多字符形式；全文档不支持 kv；路径内容直接接在多字符指令后面。<br>
+                                关闭某一项后，输入对应指令会整段按关键词搜索。<br>
+                                标题级别、路径、时间等特殊规则，可查看对应项右侧的说明。<br>
                                 保存时会校验单字符、多字符、kv 是否重复。
                             </div>
                         </div>
@@ -2013,6 +2213,74 @@ class SimpleSearchHZ extends siyuan.Plugin {
             width: '1040px',
             height: '70vh',
         });
+
+        // 指令说明浮层: 固定定位, 避免被滚动区域裁切
+        const info_tip = document.createElement('div');
+        info_tip.className = 'ss-cmd-tooltip';
+        info_tip.style.display = 'none';
+        document.body.appendChild(info_tip);
+        let info_tip_timer = null;
+        const show_info_tip = (target) => {
+            const text = target.getAttribute('aria-label') || '';
+            if (!text) return;
+            info_tip.textContent = '';
+            const lines = text.split('\n');
+            const title = document.createElement('div');
+            title.className = 'ss-cmd-tooltip__title';
+            title.textContent = lines[0];
+            info_tip.appendChild(title);
+            lines.slice(1).forEach(line => {
+                const row = document.createElement('div');
+                row.className = 'ss-cmd-tooltip__line';
+                row.textContent = line;
+                info_tip.appendChild(row);
+            });
+            info_tip.style.display = 'block';
+            const rect = target.getBoundingClientRect();
+            const tip_rect = info_tip.getBoundingClientRect();
+            let left = rect.right + 8;
+            if (left + tip_rect.width > window.innerWidth - 8) {
+                left = rect.left - tip_rect.width - 8;
+            }
+            left = Math.max(8, left);
+            let top = rect.top + rect.height / 2 - tip_rect.height / 2;
+            top = Math.max(8, Math.min(top, window.innerHeight - tip_rect.height - 8));
+            info_tip.style.left = `${left}px`;
+            info_tip.style.top = `${top}px`;
+        };
+        const hide_info_tip = () => {
+            clearTimeout(info_tip_timer);
+            info_tip.style.display = 'none';
+        };
+        const schedule_info_tip = (target) => {
+            clearTimeout(info_tip_timer);
+            info_tip_timer = setTimeout(() => show_info_tip(target), 200);
+        };
+        dialog.element.addEventListener('mouseover', (event) => {
+            const target = event.target.closest('.ss-cmd-info');
+            if (!target) return;
+            if (event.relatedTarget && target.contains(event.relatedTarget)) return;
+            schedule_info_tip(target);
+        });
+        dialog.element.addEventListener('mouseout', (event) => {
+            const target = event.target.closest('.ss-cmd-info');
+            if (!target) return;
+            if (event.relatedTarget && target.contains(event.relatedTarget)) return;
+            hide_info_tip();
+        });
+        dialog.element.addEventListener('focusin', (event) => {
+            const target = event.target.closest('.ss-cmd-info');
+            if (target) schedule_info_tip(target);
+        });
+        dialog.element.addEventListener('focusout', hide_info_tip);
+        const setting_panes = dialog.element.querySelector('.simpleSearchSettingPanes');
+        if (setting_panes) setting_panes.addEventListener('scroll', hide_info_tip, { passive: true });
+        const destroy_dialog = dialog.destroy.bind(dialog);
+        dialog.destroy = () => {
+            clearTimeout(info_tip_timer);
+            info_tip.remove();
+            destroy_dialog();
+        };
 
         const nav_items = dialog.element.querySelectorAll('.simpleSearchSettingNav .b3-list-item');
         const panes = dialog.element.querySelectorAll('.simpleSearchSettingPane');
@@ -2083,8 +2351,11 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 }
                 const add_btn = event.target.closest('[data-action="add-form"]');
                 if (add_btn) {
-                    const forms = add_btn.closest('.ss-cmd-item').querySelector('.ss-cmd-forms');
-                    forms.insertAdjacentHTML('beforeend', get_command_editor_form_html({ form: 'multi', content: '' }));
+                    const item_node = add_btn.closest('.ss-cmd-item');
+                    const forms = item_node.querySelector('.ss-cmd-forms');
+                    const allowed = (item_node.dataset.allowedForms || '').split(',').filter(Boolean);
+                    forms.insertAdjacentHTML('beforeend', get_command_editor_form_html(
+                        { form: 'multi', content: '' }, allowed.length ? allowed : undefined));
                     forms.lastElementChild.querySelector('.ss-cmd-multi').focus();
                     return;
                 }

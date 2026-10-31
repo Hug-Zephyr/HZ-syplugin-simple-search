@@ -20,12 +20,14 @@
 
 ### 项目结构
 ```
-index.js        # 核心搜索逻辑（2679行）：工具函数、搜索解析、插件主类、UI逻辑
-index.css       # 搜索界面样式（88行）
+index.js        # 核心搜索逻辑：工具函数、搜索解析、插件主类、UI逻辑
+index.css       # 搜索界面样式
 plugin.json     # 插件配置
 README.md       # 使用文档
 AGENTS.md       # 本文件
-img/            # 文档图片资源（21个）
+img/            # 文档图片资源
+test/           # 单元测试(node:test)
+test-support/   # 测试辅助: 在 vm 中加载 index.js 并导出内部函数
 ```
 
 ---
@@ -35,6 +37,9 @@ img/            # 文档图片资源（21个）
 ```bash
 # 语法检查
 node -c index.js
+
+# 单元测试(输入解析)
+node --test
 
 # 格式化代码（如已安装prettier）
 npx prettier --write index.js
@@ -152,9 +157,11 @@ background-color: #ff0000;
 
 ## 测试规范
 
-- 无自动化测试，需手动在思源笔记中验证功能
+- 解析逻辑使用 `node --test` 做单元测试，测试文件放在 `test/`，辅助代码放在 `test-support/`
+- 测试重点：不同输入经过 `search_translator` 后的 `type` / `val` / `help` 是否符合预期
+- UI 相关逻辑仍需手动在思源笔记中验证
 - 测试覆盖：搜索解析、历史匹配、结果展示、快捷键操作
-- 修改代码后需验证：语法检查通过、手动功能测试正常
+- 修改代码后需验证：语法检查通过、单元测试通过、手动功能测试正常
 
 ---
 

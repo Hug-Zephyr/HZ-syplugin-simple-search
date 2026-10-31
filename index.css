@@ -230,6 +230,57 @@ body.ss-cmd-dragging {
     line-height: 1.45;
     opacity: 0.45;
 }
+.ss-cmd-info {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    align-self: center;
+    width: 14px;
+    height: 14px;
+    opacity: 0.3;
+    cursor: help;
+    user-select: none;
+}
+.ss-cmd-item-info .ss-cmd-info {
+    margin-left: auto;
+}
+.ss-cmd-head .ss-cmd-info {
+    margin-left: 4px;
+}
+.ss-cmd-info svg {
+    width: 13px;
+    height: 13px;
+}
+.ss-cmd-info:hover,
+.ss-cmd-info:focus-visible {
+    color: var(--b3-theme-primary);
+    opacity: 1;
+    outline: none;
+}
+.ss-cmd-tooltip {
+    position: fixed;
+    z-index: 1000000;
+    max-width: 420px;
+    padding: 6px 10px;
+    border-radius: var(--b3-border-radius);
+    background-color: var(--b3-tooltips-background);
+    color: var(--b3-tooltips-color);
+    box-shadow: var(--b3-tooltips-shadow);
+    font-size: 12px;
+    line-height: 17px;
+    pointer-events: none;
+}
+.ss-cmd-tooltip__title {
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+.ss-cmd-tooltip__line {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    padding-left: 12px;
+    text-indent: -12px;
+}
 .ss-cmd-item-actions {
     display: flex;
     align-items: center;
