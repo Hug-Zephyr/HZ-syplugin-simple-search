@@ -471,6 +471,47 @@ test('类型排序: 只列出实际会出现的类型', () => {
     assert.match(unknown.val, /when 'tb' then 24/);
 });
 
+test('页面子类型过滤: 标题级别和列表类型', () => {
+    const h2 = parse('关键词 ct>2025', {
+        types: { heading: true },
+        subTypes: { heading: { h2: true } },
+    });
+    assert.match(h2.val, /type = 'h' and subtype in \('h2'\)/);
+    assert.deepEqual(block_types(h2), ['h2']);
+
+    const multi = parse('关键词 ct>2025', {
+        types: { heading: true },
+        subTypes: { heading: { h2: true, h4: true } },
+    });
+    assert.match(multi.val, /subtype in \('h2','h4'\)/);
+
+    // 全选等同于不限制子类型
+    const all = parse('关键词 ct>2025', {
+        types: { heading: true },
+        subTypes: { heading: { h1: true, h2: true, h3: true, h4: true, h5: true, h6: true } },
+    });
+    assert.match(all.val, /type in \('h'\)/);
+    assert.doesNotMatch(all.val, /subtype in/);
+
+    // 旧版本没有 subTypes
+    const legacy = parse('关键词 ct>2025', { types: { heading: true } });
+    assert.match(legacy.val, /type in \('h'\)/);
+
+    // 列表子类型
+    const list = parse('关键词 ct>2025', {
+        types: { list: true },
+        subTypes: { list: { o: true } },
+    });
+    assert.match(list.val, /type = 'l' and subtype in \('o'\)/);
+
+    // 非 SQL 模式由原生过滤, 辅助信息也应显示具体级别
+    const plainQuery = parse('-w 关键词', {
+        types: { heading: true },
+        subTypes: { heading: { h3: true } },
+    });
+    assert.deepEqual(block_types(plainQuery), ['h3']);
+});
+
 test('类型: 单独 -h 和全部标题级别', () => {
     const all = parse('-h');
     assert.deepEqual(block_types(all), ['h']);

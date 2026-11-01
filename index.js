@@ -804,6 +804,7 @@ function search_translator(arg) {
     const input           = arg.query;  // 输入的源内容
     const pageSearchPath  = arg.idPath; // 页面配置的搜索路径
     const pageSearchTypes = arg.types;  // 页面配置的搜索类型
+    const pageSearchSubTypes = arg.subTypes || {}; // 页面配置的子类型(标题级别/列表类型)
 
     let   options          = ""; // 解析出来的搜索类型
     let   keywords         = []; // 解析出来的搜索关键词
@@ -839,6 +840,53 @@ function search_translator(arg) {
     let   effective_types = []; // 本次查询实际可能出现的块类型码(用于生成类型排序)
     let   doc_mode    = false;  // || 文档模式
 
+    // 原生搜索类型 -> 块类型码; 标题级别/列表子类型只勾选部分时保留子类型限制
+    const _get_page_type_entries = function() {
+        const subtype_groups = {
+            heading: {code: 'h', keys: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']},
+            list: {code: 'l', keys: ['o', 'u', 't']},
+            listItem: {code: 'i', keys: ['o', 'u', 't']},
+        };
+        const entries = [];
+        for (const key in pageSearchTypes) {
+            if (!pageSearchTypes[key]) continue;
+            const type_code = blockTypeMapping[key];
+            if (type_code === undefined) {
+                // 思源新增、插件还没映射的类型: 原样使用 key
+                entries.push({key, unknown: true});
+                continue;
+            }
+            if (type_code === "") continue;
+            const group = subtype_groups[key];
+            const selected = group
+                ? group.keys.filter(sub => pageSearchSubTypes?.[key]?.[sub])
+                : [];
+            // 全选或未选都表示不限制子类型; 只勾选部分时保留子类型条件
+            if (group && selected.length && selected.length < group.keys.length) {
+                entries.push({key, code: type_code, subtypes: selected});
+            } else {
+                entries.push({key, code: type_code});
+            }
+        }
+        return entries;
+    };
+    // 把页面类型(含子类型)写入辅助信息
+    const _add_page_type_help = function(entries) {
+        entries.forEach(entry => {
+            if (entry.unknown) {
+                help.block_type[entry.key] = "";
+            } else if (entry.subtypes) {
+                if (entry.key === 'heading') {
+                    entry.subtypes.forEach(level => help.block_type[level] = `${level.slice(1)}级标题`);
+                } else {
+                    help.block_type[entry.code] = blockHelpMap[entry.code];
+                }
+            } else {
+                help.block_type[entry.code] = blockHelpMap[entry.code];
+            }
+        });
+    };
+
     const _handle_ret = function(ret) {
         ret = ret.replace(/and true /g, '');
         mylog(ret, keywords);
@@ -853,17 +901,8 @@ function search_translator(arg) {
         help.keywords = keywords;
         help.excluded = excludedKeywords;
         if (Object.keys(help.block_type).length == 0 && type != '-s') {
-            // 填充辅助信息的类型
-            for (const key in pageSearchTypes) {
-                if (!pageSearchTypes[key]) continue;
-                const type_code = blockTypeMapping[key];
-                if (type_code === undefined) {
-                    // 思源新增、插件还没映射的类型: 原样显示 key, 不显示 undefined
-                    help.block_type[key] = "";
-                } else if (type_code != "") {
-                    help.block_type[type_code] = blockHelpMap[type_code];
-                }
-            }
+            // 填充辅助信息的类型(包含标题级别/列表子类型)
+            _add_page_type_help(_get_page_type_entries());
         }
         if (help.sort == '默认') {
             help.group_desc = arg.group ? "按文档分组" : "不分组";
@@ -1412,23 +1451,31 @@ function search_translator(arg) {
 
         // 未指定搜索块类型时，选择“搜索类型”中开启的块类型
         if (sqlTypeRlike === "") {
-            const types = [];
-            for (const key in pageSearchTypes) {
-                if (!pageSearchTypes[key]) continue;
-                const type_code = blockTypeMapping[key];
-                if (type_code === undefined) {
-                    // 思源新增、插件还没映射的类型: 原样使用 key, 不拼出 undefined
-                    types.push(key);
-                    effective_types.push(key);
-                    help.block_type[key] = "";
-                } else if (type_code != "") {
-                    types.push(type_code);
-                    effective_types.push(type_code);
-                    help.block_type[type_code] = blockHelpMap[type_code];
+            const entries = _get_page_type_entries();
+            const types = [];           // 不受子类型限制的父类型
+            const subtype_filters = []; // 只保留部分子类型的父类型
+            entries.forEach(entry => {
+                if (entry.unknown) {
+                    types.push(entry.key);
+                    effective_types.push(entry.key);
+                } else if (entry.subtypes) {
+                    effective_types.push(entry.code);
+                    subtype_filters.push(`(type = '${entry.code}' and subtype in ('${entry.subtypes.join("','")}'))`);
+                } else {
+                    types.push(entry.code);
+                    effective_types.push(entry.code);
                 }
-            }
+            });
+            _add_page_type_help(entries);
             // 类型码不再是单字符(callout/mindmap 等), 不能用字符类
-            sqlTypeRlike = types.length ? `type in ('${types.join("','")}')` : "false";
+            const clauses = [];
+            if (types.length) clauses.push(`type in ('${types.join("','")}')`);
+            clauses.push(...subtype_filters);
+            if (clauses.length > 1) {
+                sqlTypeRlike = `(${clauses.join(' or ')})`;
+            } else {
+                sqlTypeRlike = clauses[0] || "false";
+            }
         }
         return sqlTypeRlike ? `(${sqlTypeRlike})` : "true";
     }
