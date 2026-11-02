@@ -13,10 +13,18 @@ function load_plugin(options = {}) {
     let source = fs.readFileSync(INDEX_PATH, 'utf8');
     source += `\nmodule.exports.__test = {
         search_translator,
+        escapeHtml,
+        unescapeHtml,
         get_default_command_config,
         build_command_registry,
         validate_command_config,
         get_item_display_forms,
+        get_command_complete,
+        get_all_command_candidates,
+        get_completion_entries,
+        get_completion_custom_groups,
+        get_completion_custom_order,
+        get_completion_usage_keys,
         get_command_editor_html,
         get_command_editor_form_html,
         read_command_config_from_editor,

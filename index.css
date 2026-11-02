@@ -8,16 +8,54 @@
     box-shadow: 0 0 0 0.5px var(--b3-theme-on-background);
 }
 /* 快捷跳转区 */
-#simpleSearchQuickJump {display: contents;}
 
+
+/* 建议列表容器 */
+.HZ-search-suggestion-box {
+    position: fixed;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-sizing: border-box;
+    padding: 0;
+    border-radius: var(--b3-border-radius-b);
+    border: 1px solid var(--b3-theme-surface-lighter);
+    background-color: var(--b3-menu-background);
+    box-shadow: var(--b3-dialog-shadow);
+    font-size: var(--b3-font-size);
+}
+
+/* 列表上下滚动提示(容器内占位) */
+.HZ-search-list-hint {
+    flex: 0 0 20px;
+    height: 20px;
+    line-height: 20px;
+    box-sizing: border-box;
+    padding: 0 8px;
+    font-size: 11.5px;
+    font-weight: 500;
+    white-space: nowrap;
+    text-align: center;
+    color: var(--b3-theme-on-surface);
+    opacity: 0.9;
+    pointer-events: none;
+    user-select: none;
+}
 
 /* 历史搜索记录 */
 #simpleSearchHistoryList {
-    position: fixed;
-    z-index: 10;
+    flex: 0 1 auto;
+    min-height: 0;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 0;
     /* 高度受限时在列表内部滚动, 避免文字溢出背景 */
     overflow-y: auto;
     overflow-x: hidden;
+    /* 常显细滚动条, 提示内容可滚动 */
+    scrollbar-width: thin;
+    scrollbar-color: var(--b3-scroll-color, var(--b3-border-color)) transparent;
     /* 高亮匹配到的关键词 */
     .HZ-search-history-highlight {
         font-weight:bold;
@@ -31,7 +69,30 @@
     li {
         user-select: none;
     }
-} 
+    /* 指令补全的列 */
+    .HZ-search-command-token {
+        font-family: var(--b3-font-family-code);
+        font-weight: 600;
+    }
+    .HZ-search-command-name {
+        margin-left: 8px;
+    }
+    .HZ-search-command-hint {
+        margin-left: 8px;
+        opacity: 0.55;
+    }
+}
+
+#simpleSearchHistoryList::-webkit-scrollbar {
+    width: 8px;
+}
+#simpleSearchHistoryList::-webkit-scrollbar-thumb {
+    background-color: var(--b3-scroll-color, var(--b3-border-color));
+    border-radius: 4px;
+}
+#simpleSearchHistoryList::-webkit-scrollbar-track {
+    background: transparent;
+}
 
 /* 辅助信息显示区域 */
 #simpleSearchAssistArea {
@@ -95,28 +156,31 @@
     display: flex;
     align-items: flex-start;
     gap: 12px;
-    padding: 4px 0 2px;
+    padding: 4px 24px 2px;
 }
 .ss-cmd-head .b3-button {
     flex-shrink: 0;
-    margin-top: 2px;
+    margin-top: 0;
+    /* 与标题行对齐, 高度从 small 的 20px 提到正常的 28px */
+    padding-top: 4px;
+    padding-bottom: 4px;
 }
 
 .ss-cmd-cat {
-    margin: 18px 0 0;
+    margin: 10px 0 0;
+    overflow: hidden;
+    border: 1px solid var(--b3-border-color);
+    border-radius: var(--b3-border-radius);
 }
 .ss-cmd-cat-title {
-    position: sticky;
-    top: 0;
-    z-index: 2;
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 6px 2px;
-    margin-bottom: 4px;
+    padding: 6px 12px;
     font-size: 14px;
     font-weight: 600;
     background: var(--b3-theme-surface);
+    border-bottom: 1px solid var(--b3-border-color);
 }
 .ss-cmd-cat-icon {
     font-size: 15px;
@@ -128,12 +192,13 @@
     font-weight: 400;
     line-height: 18px;
     color: var(--b3-theme-on-surface);
-    background: var(--b3-theme-surface);
+    background: var(--b3-theme-background);
     opacity: 0.7;
 }
 .ss-cmd-cat-reset {
     margin-left: auto;
-    padding: 1px 6px;
+    padding: 3px 8px;
+    line-height: 18px;
     border: none;
     border-radius: var(--b3-border-radius);
     font-size: 12px;
@@ -151,8 +216,6 @@
 
 .ss-cmd-items {
     overflow: hidden;
-    border: 1px solid var(--b3-border-color);
-    border-radius: var(--b3-border-radius);
 }
 
 .ss-cmd-item {
@@ -160,7 +223,7 @@
     grid-template-columns: 12px 28px 185px minmax(0, 1fr) auto;
     gap: 8px;
     align-items: center;
-    padding: 6px 10px;
+    padding: 6px 23px;
     border-top: 1px solid var(--b3-border-color);
 }
 .ss-cmd-item:first-child {
@@ -355,6 +418,136 @@ body.ss-cmd-dragging {
 .ss-cmd-form[data-form="kv"] .ss-cmd-single,
 .ss-cmd-form[data-form="kv"] .ss-cmd-multi {
     display: none;
+}
+
+/* 指令补全: 自定义顺序 */
+.ss-completion-order-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px 24px 4px;
+}
+.ss-completion-order-head .b3-button {
+    flex-shrink: 0;
+    margin-top: 0;
+    padding-top: 4px;
+    padding-bottom: 4px;
+}
+.ss-completion-order {
+    margin: 4px 24px 12px;
+}
+.ss-completion-order-group {
+    border: 1px solid var(--b3-border-color);
+    border-radius: var(--b3-border-radius);
+    overflow: hidden;
+}
+.ss-completion-order-group + .ss-completion-order-group {
+    margin-top: 10px;
+}
+.ss-completion-order-group-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 6px 12px;
+    background: var(--b3-theme-surface);
+    border-bottom: 1px solid var(--b3-border-color);
+    font-size: 13px;
+    font-weight: 600;
+}
+.ss-completion-order-group-title {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+.ss-completion-order-group-tag {
+    flex-shrink: 0;
+    font-family: var(--b3-font-family-code);
+    font-size: 12px;
+    font-weight: 400;
+    opacity: 0.5;
+}
+.ss-completion-order-group-count {
+    flex-shrink: 0;
+    margin-left: auto;
+    font-size: 12px;
+    font-weight: 400;
+    opacity: 0.55;
+}
+.ss-completion-order-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 12px;
+    border-top: 1px solid var(--b3-border-color);
+    user-select: none;
+}
+.ss-completion-order-list > .ss-completion-order-row:first-child {
+    border-top: none;
+}
+.ss-completion-order-row:hover {
+    background: var(--b3-list-hover);
+}
+.ss-completion-order-drag {
+    flex: 0 0 12px;
+    font-size: 13px;
+    color: var(--b3-theme-on-surface);
+    opacity: 0.35;
+    cursor: grab;
+}
+.ss-completion-order-main {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+}
+.ss-completion-order-label {
+    min-width: 0;
+    overflow: hidden;
+    font-family: var(--b3-font-family-code);
+    font-size: 14.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+.ss-completion-order-tag {
+    flex-shrink: 0;
+    font-size: 12px;
+    white-space: nowrap;
+    opacity: 0.55;
+}
+.ss-completion-order-count {
+    flex-shrink: 0;
+    font-size: 12px;
+    opacity: 0.6;
+}
+.ss-completion-order-switch {
+    margin: 0;
+}
+.ss-completion-order--disabled {
+    opacity: 0.5;
+}
+.ss-completion-order--disabled .ss-completion-order-drag {
+    cursor: default;
+}
+.ss-completion-order-placeholder {
+    background: var(--b3-list-hover);
+    outline: 1px dashed var(--b3-border-color);
+    outline-offset: -3px;
+}
+.ss-completion-order-placeholder > * {
+    visibility: hidden;
+}
+.ss-completion-order-ghost {
+    z-index: 1000;
+    box-sizing: border-box;
+    pointer-events: none;
+    background: var(--b3-theme-background);
+    border-radius: var(--b3-border-radius);
+    outline: 1px solid var(--b3-theme-primary);
+    outline-offset: -1px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
 }
 
 /* 添加 / 删除形式 */

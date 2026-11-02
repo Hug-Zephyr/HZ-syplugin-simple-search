@@ -118,6 +118,16 @@ function escapeHtml(unsafe) {
         .replace(/'/g, "&#039;") // 转义单引号
 }
 
+// 反转义 escapeHtml 产生的实体, 用于从展示 HTML 还原历史记录的原始文本
+function unescapeHtml(str) {
+    return String(str)
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&#0?39;/g, "'")
+        .replace(/&amp;/g, "&");
+}
+
 // 转义 SQL 字符串字面量中的单引号
 function escapeSqlString(str) {
     return String(str).replace(/'/g, "''");
@@ -358,6 +368,791 @@ function get_item_display_forms(item) {
         }
     }
     return forms;
+}
+
+// [指令补全] 根据输入和光标位置生成候选
+// 返回 null 表示不在补全场景; 返回对象的 candidates 按展示顺序排列
+function get_command_complete(cfg, input, caret, manual = false, sort_ctx = null) {
+    if (!cfg || !Array.isArray(cfg.categories)) cfg = get_default_command_config();
+    if (typeof input !== 'string') return null;
+    if (caret == null || caret < 0 || caret > input.length) caret = input.length;
+    const token_info = _get_completion_token(input, caret);
+    // 只在光标位于 token 末尾时补全
+    if (!token_info || !token_info.at_end) return null;
+    const token = token_info.token;
+    const model = _build_completion_model(cfg);
+    // 模式指令出现后, 后面的内容原样作为查询, 不做补全
+    if (_input_has_mode_command(model, input)) return null;
+    // 自定义 kv key 可能不以 -- 开头(如 @@type=); 输入到 key 后继续显示值菜单
+    if (!token.startsWith('-')) {
+        const custom_kv = [...model.kv_groups.keys()].some(k => !k.startsWith('--') && token.startsWith(k));
+        if (custom_kv) return _get_kv_value_candidates(model, token_info, manual, sort_ctx);
+        // 自定义指令前缀: 以非字母数字开头时(如 @、@@)按前缀列出多字符形式和 kv key
+        if (token && !/^[A-Za-z0-9_]/.test(token)) {
+            const has_custom = model.forms.some(f => {
+                if (f.type === 'multi') return !f.token.startsWith('--') && f.token.startsWith(token);
+                return !f.key.startsWith('--') && f.key.startsWith(token);
+            });
+            if (has_custom) return _get_key_candidates(model, token_info, sort_ctx);
+        }
+        return null;
+    }
+    if (token.startsWith('--')) {
+        return _get_kv_value_candidates(model, token_info, manual, sort_ctx) || _get_key_candidates(model, token_info, sort_ctx);
+    }
+    return _get_single_candidates(model, token_info, sort_ctx);
+}
+
+// [指令补全] Tab 在当前光标处没有常规候选时, 列出所有可用指令
+// 回车时在光标位置插入选中的指令
+function get_all_command_candidates(cfg, input, caret, sort_ctx = null) {
+    if (!cfg || !Array.isArray(cfg.categories)) cfg = get_default_command_config();
+    if (typeof input !== 'string') input = '';
+    if (caret == null || caret < 0 || caret > input.length) caret = input.length;
+    const model = _build_completion_model(cfg);
+    const candidates = [];
+    const seen = new Set();
+    // 单字符指令补上 "-" 前缀, 作为完整指令插入
+    for (const e of model.initial_singles) {
+        const token = '-' + e.ch;
+        if (seen.has(token)) continue;
+        seen.add(token);
+        candidates.push({
+            kind: 'multi',
+            insert: token,
+            label: token,
+            name: e.item.name || e.ch,
+            hint: e.cat.name || '',
+            close: true,
+            trailing_space: true,
+            sort_key: e.sort_key,
+        });
+    }
+    // 多字符 / kv: 复用 -- 菜单的构建逻辑, 前缀为空即列出全部
+    const rest = _get_key_candidates(model, {
+        start: caret,
+        end: caret,
+        token: '',
+        at_end: true,
+    });
+    if (rest) {
+        for (const c of rest.candidates) {
+            if (seen.has(c.label)) continue;
+            seen.add(c.label);
+            candidates.push(c);
+        }
+    }
+    if (!candidates.length) return null;
+    const sorted = _sort_completion_list(candidates, sort_ctx);
+    if (!sorted.length) return null;
+    return {
+        mode: 'all',
+        candidates: sorted,
+        default_index: 0,
+        token_start: caret,
+        token_end: caret,
+        insert_at_caret: true,
+    };
+}
+
+// 光标所在的、以空白分隔的 token
+function _get_completion_token(input, caret) {
+    let start = caret;
+    while (start > 0 && !/\s/.test(input[start - 1])) start--;
+    let end = caret;
+    while (end < input.length && !/\s/.test(input[end])) end++;
+    return {
+        start,
+        end,
+        token: input.slice(start, end),
+        at_end: caret === end,
+    };
+}
+
+// 默认配置里的多字符形式。用于区分“内置特殊前缀指令”(如 ct、g<、/)
+// 和用户新增的自定义多字符指令(如 xxcallout)。
+// 内置特殊前缀不进补全; 自定义多字符形式即使不以 -- 开头也进入补全。
+let _default_multi_tokens_cache = null;
+function _get_default_multi_tokens() {
+    if (_default_multi_tokens_cache) return _default_multi_tokens_cache;
+    const tokens = new Set();
+    for (const cat of (get_default_command_config().categories || [])) {
+        for (const item of (cat.items || [])) {
+            for (const c of (item.comms || [])) {
+                if (c.form === 'multi' && c.content) tokens.add(c.content);
+            }
+        }
+    }
+    _default_multi_tokens_cache = tokens;
+    return tokens;
+}
+
+// 默认配置里的 kv key, 用于识别用户新增的自定义 kv key(可不用 -- 开头)
+let _default_kv_keys_cache = null;
+function _get_default_kv_keys() {
+    if (_default_kv_keys_cache) return _default_kv_keys_cache;
+    const keys = new Set();
+    for (const cat of (get_default_command_config().categories || [])) {
+        for (const item of (cat.items || [])) {
+            for (const c of (item.comms || [])) {
+                if (c.form === 'kv' && c.key) keys.add(c.key);
+            }
+        }
+    }
+    _default_kv_keys_cache = keys;
+    return keys;
+}
+
+// 从指令配置构建补全所需的索引
+function _build_completion_model(cfg) {
+    const model = {
+        singles: [],        // 非模式分类的单字符
+        mode_singles: [],   // 模式分类的单字符
+        modes: [],          // 模式指令, 用于判断是否已进入模式查询
+        forms: [],          // 按配置顺序的多字符/kv 形式
+        kv_groups: new Map(), // key -> [{key,value,item,cat}]
+        single_map: new Map(), // 可组合单字符 -> entry
+        initial_singles: [],
+    };
+    let idx = 0;
+    for (const cat of (cfg.categories || [])) {
+        for (const item of (cat.items || [])) {
+            if (item.enabled === false) continue;
+            const item_key = item.id || item.code || item.name || '';
+            for (const c of (item.comms || [])) {
+                if (!is_command_form_allowed(item, c.form)) continue;
+                if (c.form === 'single') {
+                    const entry = {ch: c.content, item, cat, idx: idx++, sort_key: `single:${cat.id}:${item_key}:${c.content}`};
+                    if (cat.id === 'mode') {
+                        model.mode_singles.push(entry);
+                        model.modes.push({kind: 'single', value: c.content});
+                    } else {
+                        entry.combinable = cat.id === 'type' || cat.id === 'path';
+                        model.singles.push(entry);
+                    }
+                } else if (c.form === 'multi') {
+                    if (cat.id === 'mode') {
+                        model.modes.push({kind: 'token', value: c.content});
+                    } else if (c.content.startsWith('--') || !_get_default_multi_tokens().has(c.content)) {
+                        model.forms.push({type: 'multi', token: c.content, item, cat, idx: idx++, sort_key: `multi:${cat.id}:${item_key}:${c.content}`});
+                    }
+                } else if (c.form === 'kv') {
+                    const entry = {key: c.key, value: c.value || '', item, cat, idx: idx++};
+                    entry.sort_key = `kv:${cat.id}:${item_key}:${entry.key}:${entry.value}`;
+                    if (cat.id === 'mode') {
+                        model.modes.push({kind: 'kv', key: c.key, value: entry.value});
+                    } else if (c.key.startsWith('--') || !_get_default_kv_keys().has(c.key)) {
+                        model.forms.push({type: 'kv', ...entry});
+                        if (!model.kv_groups.has(c.key)) model.kv_groups.set(c.key, []);
+                        model.kv_groups.get(c.key).push(entry);
+                    }
+                }
+            }
+        }
+    }
+    // 单字符展示顺序: 类型 -> 路径 -> 其他(模式)
+    const rank = (e) => e.combinable ? (e.cat.id === 'type' ? 0 : 1) : 2;
+    model.singles.sort((a, b) => rank(a) - rank(b) || a.idx - b.idx);
+    model.initial_singles = [...model.singles, ...model.mode_singles];
+    let order = 0;
+    for (const e of model.initial_singles) {
+        if (e.combinable) {
+            e.order = order++;
+            model.single_map.set(e.ch, e);
+        }
+    }
+    return model;
+}
+
+// 一个 kv key 下的值信息, 用于判断 -- 菜单里显示 key 还是直接显示完整值
+function _get_kv_group_info(entries) {
+    const values = [];
+    let has_empty = false;
+    let is_template = false;
+    for (const e of entries) {
+        if (!e.value) has_empty = true;
+        else if (!values.includes(e.value)) values.push(e.value);
+        if (e.item.kind === 'time' || e.item.kind === 'heading') is_template = true;
+    }
+    return {
+        values,
+        has_empty,
+        is_template,
+        key_candidate: !(values.length === 1 && !has_empty && !is_template),
+    };
+}
+
+// 补全形式的默认顺序列表(设置里自定义排序使用)
+function get_completion_entries(cfg) {
+    if (!cfg || !Array.isArray(cfg.categories)) cfg = get_default_command_config();
+    const model = _build_completion_model(cfg);
+    const entries = [];
+    const seen = new Set();
+    const add = (row) => {
+        if (!row.key || seen.has(row.key)) return;
+        seen.add(row.key);
+        entries.push(row);
+    };
+    // 单字符
+    for (const e of model.initial_singles) {
+        add({
+            key: e.sort_key,
+            kind: 'single',
+            label: '-' + e.ch,
+            name: e.item.name || e.ch,
+            group: e.cat.name || '',
+            tag: e.cat.name || '',
+            scope: 'single',
+        });
+    }
+    // 多字符 / kv key / kv 值: 按指令配置里的形式顺序, 同一个 key 的值跟在 key 后面
+    const seen_keys = new Set();
+    for (const form of model.forms) {
+        if (form.type === 'multi') {
+            add({
+                key: form.sort_key,
+                kind: 'multi',
+                label: form.token,
+                name: form.item.name || '',
+                group: form.cat.name || '',
+                tag: form.cat.name || '',
+                scope: 'base',
+            });
+            continue;
+        }
+        if (seen_keys.has(form.key)) continue;
+        seen_keys.add(form.key);
+        const group = model.kv_groups.get(form.key) || [];
+        const info = _get_kv_group_info(group);
+        if (!info.key_candidate) {
+            const value = info.values[0];
+            const entry = group.find(e => e.value === value);
+            if (entry) {
+                add({
+                    key: entry.sort_key,
+                    kind: 'value',
+                    label: entry.key + entry.value,
+                    name: entry.item.name || '',
+                    group: entry.key + ' 值',
+                    tag: entry.key,
+                    scope: 'base',
+                });
+            }
+            continue;
+        }
+        add({
+            key: `key:${form.key}`,
+            kind: 'key',
+            label: form.key,
+            name: form.cat.name || '',
+            group: form.cat.name || '',
+            tag: 'kv key',
+            scope: 'base',
+        });
+        // 时间值不参与排序, 只保留 key
+        if (group.some(e => e.item.kind === 'time')) continue;
+        for (const e of group) {
+            if (!e.value) continue;
+            add({
+                key: e.sort_key,
+                kind: 'value',
+                label: e.key + e.value,
+                name: e.item.name || '',
+                group: e.key + ' 值',
+                tag: e.key,
+                scope: 'kv',
+                scope_key: e.key,
+            });
+        }
+    }
+    return entries;
+}
+
+// 自定义顺序按补全形式分组: 单字符(-)一组; 多字符(--)、kv key 和 kv 完整形式一组;
+// 各 kv key 的值再按 key 单独分组
+// order 为各形式的 key 数组, 每个分组内部按 order 排序, 组与组之间的顺序固定
+function get_completion_custom_groups(entries, order = []) {
+    const groups = [
+        { id: 'single', title: '单字符指令', tag: '-', entries: [] },
+        { id: 'base',   title: '多字符与 kv key', tag: '', entries: [] },
+    ];
+    const kv_groups = new Map();
+    for (const e of (entries || [])) {
+        if (e.scope === 'single') {
+            groups[0].entries.push(e);
+        } else if (e.scope === 'base') {
+            groups[1].entries.push(e);
+        } else if (e.scope === 'kv') {
+            const id = 'kv:' + (e.scope_key || '');
+            let group = kv_groups.get(id);
+            if (!group) {
+                group = { id, title: e.scope_key || '', tag: 'kv 值', entries: [] };
+                kv_groups.set(id, group);
+                groups.push(group);
+            }
+            group.entries.push(e);
+        }
+    }
+    const order_index = new Map();
+    (order || []).forEach((key, i) => {
+        if (!order_index.has(key)) order_index.set(key, i);
+    });
+    return groups.map(group => {
+        const saved = [];
+        const rest = [];
+        for (const e of group.entries) {
+            if (order_index.has(e.key)) saved.push(e);
+            else rest.push(e);
+        }
+        saved.sort((a, b) => order_index.get(a.key) - order_index.get(b.key));
+        return { ...group, entries: [...saved, ...rest] };
+    }).filter(group => group.entries.length);
+}
+
+// 自定义顺序的扁平结果, 用于排序 rank
+function get_completion_custom_order(entries, order = []) {
+    return get_completion_custom_groups(entries, order)
+        .flatMap(group => group.entries.map(e => e.key));
+}
+
+// 从一次搜索输入里提取实际用到的补全形式 key(用于使用次数排序)
+function get_completion_usage_keys(cfg, query) {
+    if (!cfg || !Array.isArray(cfg.categories)) cfg = get_default_command_config();
+    const model = _build_completion_model(cfg);
+    const keys = new Set();
+    const single_by_ch = new Map();
+    for (const e of model.initial_singles) {
+        if (!single_by_ch.has(e.ch)) single_by_ch.set(e.ch, e);
+    }
+    const multi_forms = model.forms.filter(f => f.type === 'multi');
+    const kv_keys = [...model.kv_groups.keys()].sort((a, b) => b.length - a.length);
+    const tokens = String(query || '').split(/\s+/).filter(Boolean);
+    for (const token of tokens) {
+        if (token.startsWith('--')) {
+            const kv_key = kv_keys.find(k => token.startsWith(k));
+            if (kv_key) {
+                keys.add('key:' + kv_key);
+                const group = model.kv_groups.get(kv_key) || [];
+                // 时间值不参与排序/计数, 只计 key
+                if (!group.some(e => e.item.kind === 'time')) {
+                    const payload = token.slice(kv_key.length);
+                    const parts = payload.split(',').map(s => s.trim()).filter(Boolean);
+                    for (const part of parts) {
+                        const entry = group.find(e => e.value === part);
+                        if (entry && entry.sort_key) keys.add(entry.sort_key);
+                    }
+                }
+                continue;
+            }
+            let matched = multi_forms.find(f => f.token === token);
+            if (!matched) {
+                matched = multi_forms
+                    .filter(f => f.item.kind === 'path' && token.startsWith(f.token))
+                    .sort((a, b) => b.token.length - a.token.length)[0];
+            }
+            if (matched && matched.sort_key) keys.add(matched.sort_key);
+            continue;
+        }
+        if (!token.startsWith('-')) {
+            // 自定义 kv key 可能不以 -- 开头(如 @@type=doc), 先按 kv 解析
+            const custom_kv_key = kv_keys.find(k => !k.startsWith('--') && token.startsWith(k));
+            if (custom_kv_key) {
+                keys.add('key:' + custom_kv_key);
+                const group = model.kv_groups.get(custom_kv_key) || [];
+                if (!group.some(e => e.item.kind === 'time')) {
+                    const payload = token.slice(custom_kv_key.length);
+                    const parts = payload.split(',').map(s => s.trim()).filter(Boolean);
+                    for (const part of parts) {
+                        const entry = group.find(e => e.value === part);
+                        if (entry && entry.sort_key) keys.add(entry.sort_key);
+                    }
+                }
+                continue;
+            }
+            // 自定义多字符形式可能不以 -- 开头(如 xxcallout), 直接按完整 token 匹配
+            let matched = multi_forms.find(f => f.token === token);
+            if (!matched) {
+                matched = multi_forms
+                    .filter(f => is_prefix_item(f.item) && token.startsWith(f.token))
+                    .sort((a, b) => b.token.length - a.token.length)[0];
+            }
+            if (matched && matched.sort_key) keys.add(matched.sort_key);
+            continue;
+        }
+        const chars = token.slice(1);
+        for (let i = 0; i < chars.length; i++) {
+            const entry = single_by_ch.get(chars[i]);
+            if (!entry) break;
+            keys.add(entry.sort_key);
+            if (entry.cat.id === 'mode') break;
+            if (entry.item.kind === 'heading') {
+                while (i + 1 < chars.length && /[1-6]/.test(chars[i + 1])) i++;
+            }
+        }
+    }
+    return [...keys];
+}
+
+function _completion_usage_count(usage, key) {
+    if (!key || !usage) return 0;
+    if (usage instanceof Map) return usage.get(key) || 0;
+    return usage[key] || 0;
+}
+
+// 按配置/使用次数/自定义顺序排序候选人
+function _sort_completion_list(list, sort_ctx) {
+    if (!sort_ctx || !sort_ctx.rank) return list;
+    const mode = sort_ctx.mode || 'config';
+    let result = list;
+    if (mode === 'custom' && sort_ctx.hidden && sort_ctx.hidden.size) {
+        result = result.filter(c => !c.sort_key || !sort_ctx.hidden.has(c.sort_key));
+    }
+    const rank = sort_ctx.rank;
+    result.sort((a, b) => {
+        if (mode === 'usage') {
+            const ca = _completion_usage_count(sort_ctx.usage, a.sort_key);
+            const cb = _completion_usage_count(sort_ctx.usage, b.sort_key);
+            if (ca !== cb) return cb - ca;
+        }
+        const ra = a.sort_key && rank.has(a.sort_key) ? rank.get(a.sort_key) : Number.MAX_SAFE_INTEGER;
+        const rb = b.sort_key && rank.has(b.sort_key) ? rank.get(b.sort_key) : Number.MAX_SAFE_INTEGER;
+        return ra - rb;
+    });
+    return result;
+}
+
+// 单字符列表: 空格项固定在最前面, 其余按排序方式排列
+function _sort_single_candidates(candidates, sort_ctx) {
+    const spaces = candidates.filter(c => c.kind === 'space');
+    const rest = candidates.filter(c => c.kind !== 'space');
+    return [...spaces, ..._sort_completion_list(rest, sort_ctx)];
+}
+
+// 输入中是否已出现模式指令(-w/-q/-s/-r 等)
+function _input_has_mode_command(model, input) {
+    const tokens = input.split(/\s+/).filter(Boolean);
+    for (const t of tokens) {
+        for (const m of model.modes) {
+            if (m.kind === 'single' && t === '-' + m.value) return true;
+            if (m.kind === 'token' && t === m.value) return true;
+            if (m.kind === 'kv' && t.startsWith(m.key)) {
+                const val = t.slice(m.key.length);
+                if (!m.value || val === m.value) return true;
+            }
+        }
+    }
+    // 开头的粘连写法 -sselect
+    const first = tokens[0] || '';
+    if (first.startsWith('-') && first.length > 2) {
+        for (const m of model.modes) {
+            if (m.kind === 'single' && first.startsWith('-' + m.value)) return true;
+        }
+    }
+    return false;
+}
+
+// 单字符组合: 空格 + 剩余可组合字符
+function _get_single_candidates(model, token_info, sort_ctx = null) {
+    const chars = token_info.token.slice(1);
+    const used = [];
+    let i = 0;
+    while (i < chars.length) {
+        const ch = chars[i];
+        const entry = model.single_map.get(ch);
+        if (!entry) return null;
+        used.push(ch);
+        i++;
+        // 标题后面可以跟 1-6 级别
+        if (entry.item.kind === 'heading') {
+            while (i < chars.length && /[1-6]/.test(chars[i])) i++;
+        }
+    }
+    const candidates = [];
+    if (chars.length > 0) {
+        candidates.push({
+            kind: 'space',
+            insert: ' ',
+            label: '␣',
+            name: '空格（结束）',
+            hint: '',
+            close: true,
+            trailing_space: false,
+            order: -1,
+        });
+    }
+    const source = chars.length > 0
+        ? model.initial_singles.filter(e => e.combinable && !used.includes(e.ch))
+        : model.initial_singles;
+    source.forEach(e => {
+        candidates.push({
+            kind: e.combinable ? 'single' : 'terminal',
+            insert: e.ch,
+            label: e.ch,
+            name: e.item.name || e.ch,
+            hint: e.cat.name || '',
+            combinable: !!e.combinable,
+            close: !e.combinable,
+            trailing_space: false,
+            order: e.combinable ? e.order : -1,
+            sort_key: e.sort_key,
+        });
+    });
+    if (!candidates.length) return null;
+    const sorted = _sort_single_candidates(candidates, sort_ctx);
+    if (!sorted.length) return null;
+    let default_index = 0;
+    if (chars.length > 0) {
+        const max_order = Math.max(...used.map(ch => model.single_map.get(ch).order));
+        // 排序后显示顺序可能变了, 默认高亮仍取"顺序上紧接着"的那一项
+        let next_index = -1;
+        let next_order = Infinity;
+        sorted.forEach((c, i) => {
+            if (c.kind === 'single' && c.order > max_order && c.order < next_order) {
+                next_index = i;
+                next_order = c.order;
+            }
+        });
+        if (next_index !== -1) {
+            default_index = next_index;
+        } else {
+            const space = sorted.findIndex(c => c.kind === 'space');
+            default_index = space === -1 ? 0 : space;
+        }
+    }
+    return {
+        mode: 'single',
+        candidates: sorted,
+        default_index,
+        token_start: token_info.start,
+        token_end: token_info.end,
+    };
+}
+
+// -- 菜单: 多字符形式 + kv key(单值固定值直接展开)
+function _get_key_candidates(model, token_info, sort_ctx = null) {
+    const prefix = token_info.token;
+    const candidates = [];
+    const seen = new Set();
+    for (const form of model.forms) {
+        if (form.type === 'multi') {
+            // 以 -- 开头的形式和 kv key 按输入前缀匹配;
+            // 自定义的多字符形式(如 xxcallout)不以 -- 开头, 在 -- 菜单里按去掉 -- 后的内容匹配
+            let matched = form.token.startsWith(prefix);
+            if (!matched && !form.token.startsWith('--') && prefix.startsWith('--')) {
+                matched = form.token.startsWith(prefix.slice(2));
+            }
+            if (!matched || seen.has('t:' + form.token)) continue;
+            seen.add('t:' + form.token);
+            candidates.push({
+                kind: 'multi',
+                insert: form.token,
+                label: form.token,
+                name: form.item.name || '',
+                hint: form.cat.name || '',
+                close: true,
+                trailing_space: true,
+                sort_key: form.sort_key,
+            });
+            continue;
+        }
+        const prefix_matched = form.key.startsWith(prefix);
+        // 自定义 kv key 不以 -- 开头时, 在 -- 菜单里按去掉 -- 后的内容匹配
+        const custom_key_matched = !form.key.startsWith('--') && prefix.startsWith('--') &&
+            form.key.startsWith(prefix.slice(2));
+        if ((!prefix_matched && !custom_key_matched) || seen.has('k:' + form.key)) continue;
+        seen.add('k:' + form.key);
+        const entries = model.kv_groups.get(form.key) || [];
+        const info = _get_kv_group_info(entries);
+        if (!info.key_candidate) {
+            const value = info.values[0];
+            const entry = entries.find(e => e.value === value);
+            candidates.push({
+                kind: 'complete',
+                insert: form.key + value,
+                label: form.key + value,
+                name: entries[0].item.name || '',
+                hint: entries[0].cat.name || '',
+                close: true,
+                trailing_space: true,
+                sort_key: entry ? entry.sort_key : '',
+            });
+        } else {
+            candidates.push({
+                kind: 'key',
+                insert: form.key,
+                label: form.key,
+                name: form.cat.name || '',
+                hint: '选择值',
+                close: false,
+                trailing_space: false,
+                sort_key: `key:${form.key}`,
+            });
+        }
+    }
+    if (!candidates.length) return null;
+    const sorted = _sort_completion_list(candidates, sort_ctx);
+    if (!sorted.length) return null;
+    return {
+        mode: 'key',
+        candidates: sorted,
+        default_index: 0,
+        token_start: token_info.start,
+        token_end: token_info.end,
+    };
+}
+
+// 时间 kv 值补全: 字段 -> 比较符 -> 日期 -> 连接符
+// 日期输入阶段不自动弹出; manual=true 时(Tab/选中后刷新)才显示后续步骤
+function _get_time_candidates(model, best, suffix, token_info, manual) {
+    let head = '';
+    let current = suffix;
+    const sep = Math.max(suffix.lastIndexOf('&'), suffix.lastIndexOf('|'));
+    if (sep !== -1) {
+        head = suffix.slice(0, sep + 1);
+        current = suffix.slice(sep + 1);
+    }
+    const base = best + head;
+    const field_names = { ct: '创建时间', ut: '更新时间' };
+    const op_names = { '<': '早于', '>': '晚于', '=': '等于' };
+    const candidates = [];
+    let state = '';
+    let insert_prefix = base;
+    if (current === '' || current === 'c' || current === 'u') {
+        state = 'field';
+    } else if (current === 'ct' || current === 'ut') {
+        state = 'op';
+        insert_prefix = base + current;
+    } else {
+        const m = current.match(/^(ct|ut)([<>=])(\d{0,14})$/);
+        if (!m) return null;
+        const [, , , date] = m;
+        insert_prefix = base + current;
+        if (!date) state = 'date';
+        else {
+            state = 'after_date';
+            insert_prefix = base + current;
+        }
+    }
+    if (state === 'field') {
+        const fields = ['ct', 'ut'].filter(f => f.startsWith(current));
+        fields.forEach(f => candidates.push({
+            kind: 'value',
+            insert: base + f,
+            label: f,
+            name: field_names[f],
+            hint: '',
+            close: false,
+            trailing_space: false,
+        }));
+    } else if (state === 'op') {
+        ['<', '>', '='].forEach(op => candidates.push({
+            kind: 'value',
+            insert: insert_prefix + op,
+            label: op,
+            name: op_names[op],
+            hint: '后接日期',
+            close: false,
+            trailing_space: false,
+        }));
+    } else if (state === 'date') {
+        candidates.push({
+            kind: 'hint',
+            insert: '',
+            label: '日期',
+            name: 'YYYY / YYYYMM / YYYYMMDD / 14位',
+            hint: '',
+            close: true,
+            trailing_space: false,
+        });
+    } else if (state === 'after_date') {
+        // 日期输入期间不自动弹出, Tab/手动刷新时才列出下一步
+        if (!manual) return null;
+        candidates.push(
+            { kind: 'value', insert: insert_prefix + '&', label: '&', name: '并且', hint: '继续添加条件', close: false, trailing_space: false },
+            { kind: 'value', insert: insert_prefix + '|', label: '|', name: '或者', hint: '继续添加条件', close: false, trailing_space: false },
+            { kind: 'space', insert: ' ', label: '␣', name: '空格（结束）', hint: '', close: true, trailing_space: false },
+        );
+    }
+    if (!candidates.length) return null;
+    return {
+        mode: 'time',
+        time: true,
+        candidates,
+        default_index: 0,
+        token_start: token_info.start,
+        token_end: token_info.end,
+    };
+}
+
+// kv 值菜单
+function _get_kv_value_candidates(model, token_info, manual = false, sort_ctx = null) {
+    const token = token_info.token;
+    let best = '';
+    for (const key of model.kv_groups.keys()) {
+        if (token.startsWith(key) && key.length > best.length) best = key;
+    }
+    if (!best) return null;
+    const suffix = token.slice(best.length);
+    const entries = model.kv_groups.get(best) || [];
+    // 时间过滤: 单独的表达式引导
+    if (entries.some(e => e.item.kind === 'time')) {
+        return _get_time_candidates(model, best, suffix, token_info, manual);
+    }
+    // 块类型和排序支持逗号多值: 连续选择, 已选值隐藏, 空格结束
+    const chain = entries.some(e => e.cat.id === 'type' || e.cat.id === 'sort');
+    let selected = [];
+    let active = suffix;
+    if (chain) {
+        const parts = suffix.split(',');
+        active = parts.pop() || '';
+        selected = parts.map(s => s.trim()).filter(Boolean);
+    }
+    const candidates = [];
+    const seen = new Set();
+    for (const e of entries) {
+        if (!e.value || seen.has(e.value) || !e.value.startsWith(active)) continue;
+        if (chain && selected.includes(e.value)) continue;
+        seen.add(e.value);
+        const full_token = chain
+            ? best + (selected.length ? selected.join(',') + ',' : '') + e.value
+            : best + e.value;
+        candidates.push({
+            kind: 'value',
+            insert: full_token,
+            label: full_token,
+            name: e.item.name || '',
+            hint: e.item.kind === 'time' ? '后接 >日期' : (e.cat.name || ''),
+            close: !chain,
+            trailing_space: !chain && e.item.kind !== 'time',
+            chain,
+            sort_key: e.sort_key,
+        });
+    }
+    if (chain && selected.length) {
+        candidates.push({
+            kind: 'space',
+            insert: ' ',
+            label: '␣',
+            name: '空格（结束）',
+            hint: '',
+            close: true,
+            trailing_space: false,
+            chain: true,
+        });
+    }
+    if (!candidates.length) return null;
+    const sorted = _sort_completion_list(candidates.filter(c => c.kind !== 'space'), sort_ctx);
+    const spaces = candidates.filter(c => c.kind === 'space');
+    const ordered = [...sorted, ...spaces];
+    if (!ordered.length) return null;
+    return {
+        mode: 'value',
+        chain,
+        candidates: ordered,
+        default_index: 0,
+        token_start: token_info.start,
+        token_end: token_info.end,
+    };
 }
 
 // 从配置构建解析索引
@@ -1942,6 +2737,38 @@ function matchHistory(input, history, is_all=false) {
     ];
 }
 
+// 插件设置默认值(设置面板的“重置所有”也使用这里)
+function get_default_plugin_settings() {
+    return {
+        plugin_enabled    : true,           // 插件总开关
+        log_level         : 'info',         // 日志等级: off/error/warn/info/debug
+        assist_sw         : true,           // 辅助信息显示框 是否显示
+        btn_show_help     : true,           // 搜索页顶部是否显示指令手册按钮
+        btn_show_setting  : true,           // 搜索页顶部是否显示简搜设置按钮
+        history_auto      : 'smart',        // 自动显示历史记录: close-关闭, smart-智能显示, always-总是显示
+        intercept_search  : true,           // 历史列表显示期间是否拦截(暂停)原生搜索
+        replace_history   : true,           // 历史列表快捷键(Alt+↓)是否启用
+        command_shortcut  : true,           // 指令补全快捷键(Tab)是否启用
+        completion_sort   : 'config',       // 补全排序方式: config-设置顺序, usage-使用次数, custom-自定义
+        completion_order  : [],             // 自定义补全顺序(补全形式 key 数组)
+        completion_hidden : [],             // 自定义排序下隐藏的补全形式 key
+        replace_search_res: true,           // 是否接管搜索结果
+        restree_style     : "native_tree",  // 文档树样式: 原生列表:native_list, 原生树:native_tree, 多彩:colorful, ediary
+        sync_file         : true,           // 搜索结果的样式是否同步到文档树那里
+        search_res_top    : true,           // 文档下的结果是否置顶
+        restree_all_path  : true,           // 显示全路径
+        is_highlight_open : true,           // 通过 双击/回车 跳转到对应位置后, 高亮搜索的关键词
+        is_blink_open     : false,          // 通过 双击/回车 跳转到对应位置后, 闪烁当前的块
+        cursor_position   : "after",        // 通过 双击/回车 跳转到对应位置后, 光标效果: 不处理:none, 之前:before, 选中:select, 之后:after
+        ignored_inputs    : ["/", "//", "-", "--"], // 需要阻止搜索的特殊输入
+        command_complete  : true,           // 输入 -/-- 时是否显示指令补全(默认开启)
+        command_rows      : 15,             // 指令补全菜单最多显示的行数, 0=只按窗口高度限制
+        history_rows_intercept: 15,         // 拦截搜索开启时历史列表最多显示的行数, 0=不限制
+        history_rows_normal   : 4,          // 拦截搜索关闭时历史列表最多显示的行数, 0=不限制
+        command_config    : get_default_command_config(), // 指令配置(分类/key/三种形式)
+    };
+}
+
 class SimpleSearchHZ extends siyuan.Plugin {
     get_ele(selector) {
         if (!document.body.contains(this.page)) {
@@ -1960,8 +2787,113 @@ class SimpleSearchHZ extends siyuan.Plugin {
     get_search_history_ul() {
         return this.get_ele('#simpleSearchHistoryList');
     }
+    get_suggestion_box() {
+        return this.get_ele('#simpleSearchSuggestionBox');
+    }
     is_show_history_list() {
-        return !this.get_search_history_ul()?.classList.contains('fn__none');
+        return this.suggestion_mode === 'history' && !this.get_suggestion_box()?.classList.contains('fn__none');
+    }
+    is_show_command_list() {
+        return this.suggestion_mode === 'command' && !this.get_suggestion_box()?.classList.contains('fn__none');
+    }
+    // 当前搜索页的建议列表手动状态: history/command 分别为 null|'show'|'hide'
+    get_page_suggestion_state(input = this.get_search_input()) {
+        const page = input?.closest('.fn__flex-column') || this.page;
+        if (!page) return null;
+        if (!this.page_suggestion_states) this.page_suggestion_states = new WeakMap();
+        let state = this.page_suggestion_states.get(page);
+        if (!state) {
+            state = { history: null, command: null };
+            this.page_suggestion_states.set(page, state);
+        }
+        return state;
+    }
+    // 当前搜索页的历史显示模式(手动状态优先)
+    get_history_auto_mode(input = this.get_search_input()) {
+        const state = this.get_page_suggestion_state(input);
+        if (state?.history === 'hide') return 'close';
+        if (state?.history === 'show') return 'always';
+        return this.g_setting.history_auto;
+    }
+    // 补全候选的排序上下文: 默认顺序/使用次数/自定义
+    get_completion_sort_ctx() {
+        const cfg = this.g_setting.command_config;
+        if (!this._completion_entries_cache || this._completion_entries_cache.cfg !== cfg) {
+            const entries = get_completion_entries(cfg);
+            const rank = new Map(entries.map((e, i) => [e.key, i]));
+            this._completion_entries_cache = { cfg, entries, rank };
+        }
+        const mode = this.g_setting.completion_sort || 'config';
+        let rank = this._completion_entries_cache.rank;
+        let hidden = null;
+        if (mode === 'custom') {
+            const order = Array.isArray(this.g_setting.completion_order) ? this.g_setting.completion_order : [];
+            const custom = new Map();
+            let i = 0;
+            for (const key of get_completion_custom_order(this._completion_entries_cache.entries, order)) {
+                if (rank.has(key) && !custom.has(key)) custom.set(key, i++);
+            }
+            for (const key of rank.keys()) {
+                if (!custom.has(key)) custom.set(key, i++);
+            }
+            rank = custom;
+            hidden = new Set(Array.isArray(this.g_setting.completion_hidden) ? this.g_setting.completion_hidden : []);
+        }
+        return { mode, rank, usage: this.completion_usage || {}, hidden };
+    }
+    // 补全形式使用次数: 只在实际搜索/点击结果时计数
+    load_completion_usage() {
+        this.loadData("completion_usage.json").then((raw) => {
+            let data = raw;
+            if (typeof data === 'string') {
+                try { data = JSON.parse(data); } catch (e) { data = null; }
+            }
+            const merged = (!this._completion_usage_ignore_load && data && typeof data === 'object' && !Array.isArray(data)) ? { ...data } : {};
+            // 加载完成前如果已经计数, 合并进来而不是覆盖
+            for (const [key, count] of Object.entries(this.completion_usage || {})) {
+                merged[key] = (merged[key] || 0) + count;
+            }
+            this.completion_usage = merged;
+            this._completion_usage_loaded = true;
+            if (this._completion_usage_dirty) this.schedule_completion_usage_save();
+        }, () => {
+            this._completion_usage_loaded = true;
+            if (this._completion_usage_dirty) this.schedule_completion_usage_save();
+        });
+    }
+    schedule_completion_usage_save() {
+        if (!this._completion_usage_loaded) return;
+        clearTimeout(this._completion_usage_save_timer);
+        this._completion_usage_save_timer = setTimeout(() => {
+            this._completion_usage_dirty = false;
+            const ret = this.saveData("completion_usage.json", JSON.stringify(this.completion_usage));
+            if (ret && ret.catch) ret.catch(e => mylog_error("保存补全使用次数失败", e));
+        }, 500);
+    }
+    count_completion_usage(query, input = this.get_search_input()) {
+        const value = String(query || '');
+        const page = input?.closest?.('.fn__flex-column') || this.page;
+        if (!value || !page) return;
+        if (!this._last_counted_queries) this._last_counted_queries = new WeakMap();
+        if (this._last_counted_queries.get(page) === value) return;
+        this._last_counted_queries.set(page, value);
+        const keys = get_completion_usage_keys(this.g_setting.command_config, value);
+        if (!keys.length) return;
+        for (const key of keys) {
+            this.completion_usage[key] = (this.completion_usage[key] || 0) + 1;
+        }
+        this._completion_usage_dirty = true;
+        this.schedule_completion_usage_save();
+    }
+    clear_completion_usage() {
+        this.completion_usage = {};
+        this._completion_usage_loaded = true;
+        this._completion_usage_dirty = false;
+        this._completion_usage_ignore_load = true;
+        this._last_counted_queries = new WeakMap();
+        clearTimeout(this._completion_usage_save_timer);
+        const ret = this.saveData("completion_usage.json", "{}");
+        if (ret && ret.catch) ret.catch(e => mylog_error("清空补全使用次数失败", e));
     }
     get_search_list() {
         return this.get_ele('#searchList');
@@ -2152,12 +3084,13 @@ class SimpleSearchHZ extends siyuan.Plugin {
     openSetting() {
         const g_setting = this.g_setting;
         const categories = [
-            {id: 'general', icon: '🔌', name: '常规'},
-            {id: 'history', icon: '🕒', name: '历史记录'},
-            {id: 'search',  icon: '🔍', name: '搜索结果'},
-            {id: 'jump',    icon: '🎯', name: '跳转效果'},
-            {id: 'block',   icon: '🚫', name: '搜索拦截'},
-            {id: 'command', icon: '⌨️', name: '指令配置'},
+            {id: 'general',    icon: '🔌', name: '常规'},
+            {id: 'history',    icon: '🕒', name: '历史记录'},
+            {id: 'completion', icon: '⌨️', name: '指令补全'},
+            {id: 'command',    icon: '📝', name: '指令配置'},
+            {id: 'search',     icon: '🔍', name: '搜索结果'},
+            {id: 'jump',       icon: '🎯', name: '跳转效果'},
+            {id: 'about',      icon: 'ℹ️', name: '关于'},
         ];
         const row_switch = (key, title, desc) => `
             <label class="fn__flex b3-label config-item">
@@ -2186,6 +3119,15 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 <div class="fn__hr"></div>
                 <textarea class="b3-text-field fn__block" rows="2" placeholder="例如: /, //, -, --" data-key="${key}">${escapeHtml(value)}</textarea>
             </div>`;
+        const row_number = (key, title, desc) => `
+            <div class="fn__flex b3-label config-item">
+                <div class="fn__flex-1">
+                    <div class="config-name">${title}</div>
+                    ${desc ? `<div class="b3-label__text">${desc}</div>` : ""}
+                </div>
+                <span class="fn__space"></span>
+                <input class="b3-text-field fn__flex-center fn__size200" type="number" min="0" step="1" data-key="${key}" value="${g_setting[key] ?? 0}">
+            </div>`;
 
         const nav_html = categories.map(cat => `
             <div class="b3-list-item" data-cat="${cat.id}">
@@ -2206,15 +3148,66 @@ class SimpleSearchHZ extends siyuan.Plugin {
                         {value: 'info',  label: '信息 (info)'},
                         {value: 'debug', label: '调试 (debug)'},
                     ])}
+                    ${row_textarea('ignored_inputs', '阻止搜索的特殊输入', '当输入框内容完全匹配以下任一值时, 阻止搜索(多个值用英文逗号分隔)', (g_setting.ignored_inputs || []).join(", "))}
+                    ${row_switch('btn_show_help', '显示“指令手册”按钮', '辅助区域显示时, 在搜索页顶部显示帮助按钮, 点击后在辅助信息框里查看指令速查手册')}
+                    ${row_switch('btn_show_setting', '显示“简搜设置”按钮', '辅助区域显示时, 在搜索页顶部“指令手册”按钮的左侧显示设置按钮')}
                 </div>
                 <div class="simpleSearchSettingPane" data-pane="history">
-                    ${row_switch('intercept_search', '拦截搜索', '开启: 历史列表显示期间暂停搜索, 结果区保持上一次的结果<br>关闭: 历史列表只作为输入框下方的建议层, 搜索照常实时执行')}
                     ${row_select('history_auto', '自动显示历史记录', '输入内容时自动显示匹配到的历史记录<br>关闭: 不自动显示, 需要时用 alt+↓ 手动调出<br>智能显示: 存在可用的历史候选时显示(与输入完全相同的项不计入)<br>总是显示: 只要输入不为空就显示, 首行为当前输入', [
                         {value: 'close',  label: '关闭'},
                         {value: 'smart',  label: '智能显示'},
                         {value: 'always', label: '总是显示'},
                     ])}
-                    ${row_switch('replace_history', '历史记录快捷键', '开启后: alt+↓ 显示/隐藏历史列表; alt+↑ 隐藏列表, 并把"自动显示历史记录"切为关闭<br>关闭后: 不使用这两个快捷键, 其余功能不受影响')}
+                    ${row_switch('replace_history', '历史列表快捷键 (Alt+↓)', '开启后: Alt+↓ 显示/隐藏历史列表; 手动状态只在当前搜索页有效, 不会修改任何设置<br>关闭后: 不使用该快捷键')}
+                    ${row_switch('intercept_search', '拦截搜索', '开启: 历史列表显示期间暂停搜索, 结果区保持上一次的结果<br>关闭: 历史列表只作为输入框下方的建议层, 搜索照常实时执行')}
+                    ${row_number('history_rows_intercept', '历史记录行数上限(拦截开启)', '拦截搜索开启, 历史列表显示期间暂停搜索时, 最多显示的行数; 0 表示只按窗口高度限制')}
+                    ${row_number('history_rows_normal', '历史记录行数上限(拦截关闭)', '拦截搜索关闭, 历史列表只作建议层时, 最多显示的行数; 0 表示只按窗口高度限制')}
+                </div>
+                <div class="simpleSearchSettingPane" data-pane="completion">
+                    ${row_switch('command_complete', '指令补全', '开启后: 输入 - 时列出单字符指令, 输入 -- 时列出多字符指令和 kv key, 输入 kv key 后列出配置中的可选值<br>选择指令期间会暂停搜索; -w/-q/-s/-r 模式指令之后不补全')}
+                    ${row_switch('command_shortcut', '指令补全快捷键 (Tab)', '开启后: Tab 显示/隐藏指令补全列表, 没有补全候选时列出全部指令(回车插入); 手动状态只在当前搜索页有效, 不会修改任何设置<br>关闭后: 不使用该快捷键')}
+                    ${row_number('command_rows', '补全菜单行数上限', '指令补全列表最多显示的行数; 0 表示只按窗口高度限制')}
+                    ${row_select('completion_sort', '补全排序方式', '控制单字符、多字符、kv key 和 kv 值的补全顺序<br>设置顺序: 按指令配置的顺序<br>使用次数: 按实际搜索次数排序, 次数相同按设置顺序<br>自定义: 按下方分组列表的顺序', [
+                        {value: 'config', label: '按设置顺序（默认）'},
+                        {value: 'usage',  label: '按使用次数'},
+                        {value: 'custom', label: '自定义'},
+                    ])}
+                    <div class="ss-completion-order-head">
+                        <div class="fn__flex-1">
+                            <div class="config-name">自定义顺序</div>
+                            <div class="b3-label__text">
+                                按“单字符 / 多字符与 kv key / 各 kv key 的值”分组展示；kv key 和多字符放在同一组，可一起调整顺序，每个 key 的值单独成组。<br>
+                                开关只在“自定义”排序下影响补全菜单，不影响解析和搜索。<br>
+                                使用次数按实际搜索/点击结果统计；非“自定义”排序时此列表置灰。
+                            </div>
+                        </div>
+                        <button class="b3-button b3-button--outline b3-button--small" id="simpleSearchClearCompletionUsage">清空使用次数</button>
+                    </div>
+                    <div id="simpleSearchCompletionOrder" class="ss-completion-order"></div>
+                    <textarea data-key="completion_order_json" style="display:none"></textarea>
+                    <textarea data-key="completion_hidden_json" style="display:none"></textarea>
+                </div>
+                <div class="simpleSearchSettingPane" data-pane="command">
+                    <div class="ss-cmd-head">
+                        <div class="fn__flex-1">
+                            <div class="config-name">指令配置</div>
+                            <div class="b3-label__text">
+                                每一项可以配置多个“形式”，不同项支持的形式可能不同：<br>
+                                · 单字符：只填字符，输入时加 <span class="fn__code">-</span>，例如 <span class="fn__code">h</span> 对应 <span class="fn__code">-h</span>。<br>
+                                · 多字符：填指令本身，例如 <span class="fn__code">--callout</span>；路径、时间这类指令，后面的内容会作为参数。<br>
+                                · 自定义多字符即使不以 <span class="fn__code">--</span> 开头（如 <span class="fn__code">xxcallout</span>），也会出现在 <span class="fn__code">--</span> 补全、Tab 全部指令和自定义顺序中；以 <span class="fn__code">@</span> 等符号开头时输入前缀会自动补全。<br>
+                                · kv：填 key 和值，key 末尾要带 <span class="fn__code">=</span>，例如 <span class="fn__code">--type=</span> 和 <span class="fn__code">callout</span> 组成 <span class="fn__code">--type=callout</span>。<br>
+                                · 自定义 kv key 也可以不以 <span class="fn__code">--</span> 开头（如 <span class="fn__code">@@type=</span>），输入 key 后会继续补全值。<br>
+                                路径过滤、排除路径只支持多字符形式；全文档不支持 kv；路径内容直接接在多字符指令后面。<br>
+                                关闭某一项后，输入对应指令会整段按关键词搜索。<br>
+                                标题级别、路径、时间等特殊规则，可查看对应项右侧的说明。<br>
+                                保存时会校验单字符、多字符、kv 是否重复。
+                            </div>
+                        </div>
+                        <button class="b3-button b3-button--outline b3-button--small" id="simpleSearchResetCommandConfig">恢复默认</button>
+                    </div>
+                    <div id="simpleSearchCommandEditor"></div>
+                    <textarea data-key="command_config_json" style="display:none"></textarea>
                 </div>
                 <div class="simpleSearchSettingPane" data-pane="search">
                     ${row_switch('replace_search_res', '接管搜索结果', '开启后, 搜索结果将以新的样式进行显示(按文档分组时生效)')}
@@ -2237,32 +3230,31 @@ class SimpleSearchHZ extends siyuan.Plugin {
                         {value: 'after',  label: '关键词之后'},
                     ])}
                 </div>
-                <div class="simpleSearchSettingPane" data-pane="block">
-                    ${row_textarea('ignored_inputs', '阻止搜索的特殊输入', '当输入框内容完全匹配以下任一值时, 阻止搜索(多个值用英文逗号分隔)', (g_setting.ignored_inputs || []).join(", "))}
-                </div>
-                <div class="simpleSearchSettingPane" data-pane="command">
-                    <div class="ss-cmd-head">
-                        <div class="fn__flex-1">
-                            <div class="config-name">指令配置</div>
-                            <div class="b3-label__text">
-                                每一项可以配置多个“形式”，不同项支持的形式可能不同：<br>
-                                · 单字符：只填字符，输入时加 <span class="fn__code">-</span>，例如 <span class="fn__code">h</span> 对应 <span class="fn__code">-h</span>。<br>
-                                · 多字符：填指令本身，例如 <span class="fn__code">--callout</span>；路径、时间这类指令，后面的内容会作为参数。<br>
-                                · kv：填 key 和值，key 末尾要带 <span class="fn__code">=</span>，例如 <span class="fn__code">--type=</span> 和 <span class="fn__code">callout</span> 组成 <span class="fn__code">--type=callout</span>。<br>
-                                路径过滤、排除路径只支持多字符形式；全文档不支持 kv；路径内容直接接在多字符指令后面。<br>
-                                关闭某一项后，输入对应指令会整段按关键词搜索。<br>
-                                标题级别、路径、时间等特殊规则，可查看对应项右侧的说明。<br>
-                                保存时会校验单字符、多字符、kv 是否重复。
-                            </div>
-                        </div>
-                        <button class="b3-button b3-button--outline b3-button--small" id="simpleSearchResetCommandConfig">恢复默认</button>
+                <div class="simpleSearchSettingPane" data-pane="about">
+                    <div class="b3-label config-item">
+                        <div class="config-name">${escapeHtml(this.displayName || this.name || '简搜')}</div>
+                        <div class="b3-label__text">一个为思源笔记设计的增强型搜索插件, 支持通过输入指令控制搜索方式、块类型、路径、排序等。</div>
                     </div>
-                    <div id="simpleSearchCommandEditor"></div>
-                    <textarea data-key="command_config_json" style="display:none"></textarea>
+                    <div class="b3-label config-item">
+                        <div class="config-name">使用手册</div>
+                        <div class="b3-label__text">查看完整的功能说明、更新日志和反馈方式。</div>
+                        <div class="fn__hr"></div>
+                        <button class="b3-button b3-button--outline" id="simpleSearchAboutReadme">跳转至手册</button>
+                    </div>
+                    <div class="b3-label config-item">
+                        <div class="config-name">反馈与交流</div>
+                        <div class="b3-label__text">
+                            <a href="https://github.com/Hug-Zephyr/HZ-syplugin-simple-search/issues" target="_blank">GitHub Issue</a>
+                            <span class="fn__space"></span>
+                            <a href="https://ld246.com/member/HugZephyr" target="_blank">链滴 @HugZephyr</a>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
         <div class="b3-dialog__action">
+            <button class="b3-button b3-button--outline" id="simpleSearchResetAll">重置所有</button>
+            <div class="fn__flex-1"></div>
             <button class="b3-button b3-button--cancel">取消</button>
             <div class="fn__space"></div>
             <button class="b3-button b3-button--text">保存</button>
@@ -2351,6 +3343,13 @@ class SimpleSearchHZ extends siyuan.Plugin {
         };
         nav_items.forEach(item => item.addEventListener('click', () => select_cat(item.dataset.cat)));
         select_cat(categories[0].id);
+
+        // 关于: 跳转至手册
+        dialog.element.querySelector('#simpleSearchAboutReadme')?.addEventListener('click', (event) => {
+            event.stopPropagation();
+            window.open('https://gitee.com/Hug_Zephyr/HZ-syplugin-simple-search/blob/master/README.md', '_blank');
+            event.target.blur();
+        });
 
         // 指令配置: 可视化编辑
         const command_pane = dialog.element.querySelector('[data-pane="command"]');
@@ -2573,6 +3572,133 @@ class SimpleSearchHZ extends siyuan.Plugin {
             }, { passive: true });
         }
 
+        // 指令补全: 自定义顺序列表
+        const completion_order_ele = dialog.element.querySelector('#simpleSearchCompletionOrder');
+        // 自定义顺序列表自身不滚动, 跟随设置面板滚动; 拖动时滚动设置面板
+        const completion_order_scroll = completion_order_ele?.closest('.simpleSearchSettingPanes') || completion_order_ele;
+        const completion_order_json = dialog.element.querySelector('[data-key="completion_order_json"]');
+        const completion_hidden_json = dialog.element.querySelector('[data-key="completion_hidden_json"]');
+        const completion_sort_ele = dialog.element.querySelector('[data-key="completion_sort"]');
+        const update_completion_order_disabled = () => {
+            if (!completion_order_ele || !completion_sort_ele) return;
+            const disabled = completion_sort_ele.value !== 'custom';
+            completion_order_ele.classList.toggle('ss-completion-order--disabled', disabled);
+            completion_order_ele.querySelectorAll('.ss-completion-order-switch').forEach(sw => sw.disabled = disabled);
+        };
+        const render_completion_order = (order, hidden, cfg) => {
+            if (!completion_order_ele) return;
+            const entries = get_completion_entries(cfg || this.g_setting.command_config);
+            const groups = get_completion_custom_groups(entries, order);
+            const hidden_set = new Set(hidden || []);
+            const usage = this.completion_usage || {};
+            const row_html = (e) => `
+                <div class="ss-completion-order-row" data-order-key="${escapeHtml(e.key)}">
+                    <span class="ss-completion-order-drag" aria-hidden="true">⠿</span>
+                    <div class="ss-completion-order-main">
+                        <span class="ss-completion-order-label">${escapeHtml(e.label)}</span>
+                        <span class="ss-completion-order-tag">${escapeHtml(e.tag || e.group || '')}</span>
+                    </div>
+                    <span class="ss-completion-order-count">${usage[e.key] || 0} 次</span>
+                    <input class="b3-switch ss-completion-order-switch" type="checkbox" ${hidden_set.has(e.key) ? '' : 'checked'}>
+                </div>`;
+            completion_order_ele.innerHTML = groups.map(group => `
+                <section class="ss-completion-order-group" data-order-group="${escapeHtml(group.id)}">
+                    <div class="ss-completion-order-group-head">
+                        <span class="ss-completion-order-group-title">${escapeHtml(group.title)}</span>
+                        ${group.tag ? `<span class="ss-completion-order-group-tag">${escapeHtml(group.tag)}</span>` : ''}
+                        <span class="ss-completion-order-group-count">${group.entries.length} 项</span>
+                    </div>
+                    <div class="ss-completion-order-list">
+                        ${group.entries.map(row_html).join('')}
+                    </div>
+                </section>`).join('');
+            update_completion_order_disabled();
+        };
+        render_completion_order(this.g_setting.completion_order || [], this.g_setting.completion_hidden || []);
+        completion_sort_ele?.addEventListener('change', update_completion_order_disabled);
+        dialog.element.querySelector('#simpleSearchClearCompletionUsage')?.addEventListener('click', () => {
+            this.clear_completion_usage();
+            completion_order_ele?.querySelectorAll('.ss-completion-order-count').forEach(ele => {
+                ele.textContent = '0 次';
+            });
+        });
+
+        // 自定义顺序拖动
+        let completion_drag_row = null;
+        let completion_drag_list = null;
+        let completion_drag_ghost = null;
+        let completion_drag_started = false;
+        let completion_drag_start_x = 0;
+        let completion_drag_start_y = 0;
+        let completion_drag_off_y = 0;
+        completion_order_ele?.addEventListener('pointerdown', (event) => {
+            if (!completion_sort_ele || completion_sort_ele.value !== 'custom') return;
+            const handle = event.target.closest('.ss-completion-order-drag');
+            if (!handle) return;
+            const row = handle.closest('.ss-completion-order-row');
+            if (!row) return;
+            completion_drag_row = row;
+            completion_drag_list = row.closest('.ss-completion-order-list');
+            completion_drag_started = false;
+            completion_drag_start_x = event.clientX;
+            completion_drag_start_y = event.clientY;
+            const rect = row.getBoundingClientRect();
+            completion_drag_off_y = event.clientY - rect.top;
+            handle.setPointerCapture?.(event.pointerId);
+            event.preventDefault();
+        });
+        const finish_completion_drag = () => {
+            if (!completion_drag_row) return;
+            completion_drag_row.classList.remove('ss-completion-order-placeholder');
+            completion_drag_ghost?.remove();
+            completion_drag_row = null;
+            completion_drag_list = null;
+            completion_drag_ghost = null;
+            completion_drag_started = false;
+        };
+        dialog.element.addEventListener('pointermove', (event) => {
+            if (!completion_drag_row || !completion_order_ele) return;
+            if (!completion_drag_started) {
+                if (Math.abs(event.clientX - completion_drag_start_x) + Math.abs(event.clientY - completion_drag_start_y) < 4) return;
+                completion_drag_started = true;
+                const rect = completion_drag_row.getBoundingClientRect();
+                completion_drag_ghost = completion_drag_row.cloneNode(true);
+                completion_drag_ghost.classList.add('ss-completion-order-ghost');
+                completion_drag_ghost.style.position = 'fixed';
+                completion_drag_ghost.style.left = `${rect.left}px`;
+                completion_drag_ghost.style.top = `${rect.top}px`;
+                completion_drag_ghost.style.width = `${rect.width}px`;
+                completion_drag_ghost.style.height = `${rect.height}px`;
+                document.body.appendChild(completion_drag_ghost);
+                completion_drag_row.classList.add('ss-completion-order-placeholder');
+            }
+            completion_drag_ghost.style.top = `${event.clientY - completion_drag_off_y}px`;
+            const scroll_ele = completion_order_scroll || completion_order_ele;
+            const list_rect = scroll_ele.getBoundingClientRect();
+            if (event.clientY < list_rect.top + 20) scroll_ele.scrollTop -= 8;
+            else if (event.clientY > list_rect.bottom - 20) scroll_ele.scrollTop += 8;
+            // 只在当前分组内拖动, 避免打乱单字符/多字符/各 kv key 的分组
+            const drag_list = completion_drag_list || completion_order_ele;
+            const rows = [...drag_list.querySelectorAll('.ss-completion-order-row')].filter(r => r !== completion_drag_row);
+            let ref = null;
+            for (const row of rows) {
+                const rect = row.getBoundingClientRect();
+                if (event.clientY < rect.top + rect.height / 2) { ref = row; break; }
+            }
+            if (ref) {
+                if (completion_drag_row.nextElementSibling !== ref) drag_list.insertBefore(completion_drag_row, ref);
+            } else if (drag_list.lastElementChild !== completion_drag_row) {
+                drag_list.appendChild(completion_drag_row);
+            }
+        });
+        dialog.element.addEventListener('pointerup', finish_completion_drag);
+        dialog.element.addEventListener('pointercancel', finish_completion_drag);
+        const destroy_before_completion_drag = dialog.destroy.bind(dialog);
+        dialog.destroy = () => {
+            finish_completion_drag();
+            destroy_before_completion_drag();
+        };
+
         // 指令配置: 恢复默认
         const reset_btn = dialog.element.querySelector('#simpleSearchResetCommandConfig');
         if (reset_btn) {
@@ -2581,19 +3707,50 @@ class SimpleSearchHZ extends siyuan.Plugin {
             });
         }
 
-        const btns = dialog.element.querySelectorAll('.b3-dialog__action .b3-button');
-        btns[0].addEventListener('click', () => dialog.destroy());
-        btns[1].addEventListener('click', () => {
+        const reset_all_btn = dialog.element.querySelector('#simpleSearchResetAll');
+        const cancel_btn = dialog.element.querySelector('.b3-dialog__action .b3-button--cancel');
+        const save_btn = dialog.element.querySelector('.b3-dialog__action .b3-button--text');
+        // 重置所有: 只重置表单, 点击保存后才真正生效
+        let reset_all_pending = false;
+        reset_all_btn?.addEventListener('click', () => {
+            reset_all_pending = true;
+            const defaults = get_default_plugin_settings();
+            dialog.element.querySelectorAll('[data-key]').forEach(ele => {
+                const key = ele.dataset.key;
+                if (key === 'command_config_json' || key === 'completion_order_json' || key === 'completion_hidden_json') return;
+                const val = defaults[key];
+                if (ele.type === 'checkbox') ele.checked = !!val;
+                else if (ele.tagName === 'SELECT') ele.value = val;
+                else if (ele.tagName === 'TEXTAREA') ele.value = Array.isArray(val) ? val.join(', ') : (val ?? '');
+                else ele.value = val ?? '';
+            });
+            render_command_editor(JSON.parse(JSON.stringify(defaults.command_config)));
+            if (completion_sort_ele) completion_sort_ele.value = defaults.completion_sort || 'config';
+            render_completion_order(defaults.completion_order || [], defaults.completion_hidden || [], defaults.command_config);
+        });
+        cancel_btn?.addEventListener('click', () => dialog.destroy());
+        save_btn?.addEventListener('click', () => {
             // 把可视化编辑结果写回隐藏的 JSON 字段, 由 apply_setting_from_dialog 统一校验
             if (editor_ele && json_ele && base_cfg) {
                 json_ele.value = JSON.stringify(read_command_config_from_editor(editor_ele, base_cfg));
             }
-            if (this.apply_setting_from_dialog(dialog.element) === false) return;
+            // 自定义顺序/隐藏项
+            if (completion_order_ele && completion_order_json && completion_hidden_json) {
+                const rows = [...completion_order_ele.querySelectorAll('.ss-completion-order-row')];
+                completion_order_json.value = JSON.stringify(rows.map(row => row.dataset.orderKey));
+                completion_hidden_json.value = JSON.stringify(rows.filter(row => {
+                    const sw = row.querySelector('.ss-completion-order-switch');
+                    return sw && !sw.checked;
+                }).map(row => row.dataset.orderKey));
+            }
+            if (this.apply_setting_from_dialog(dialog.element, reset_all_pending) === false) return;
             dialog.destroy();
         });
     }
     // 保存设置面板中的修改
-    apply_setting_from_dialog(dialog_element) {
+    // reset_all=true 时从默认值开始, 再套用表单里的值(表单未包含的隐藏项也恢复默认)
+    apply_setting_from_dialog(dialog_element, reset_all = false) {
+        if (reset_all) this.g_setting = get_default_plugin_settings();
         // 指令配置单独处理: JSON 解析 + 校验
         const json_ele = dialog_element.querySelector('[data-key="command_config_json"]');
         if (json_ele) {
@@ -2611,11 +3768,27 @@ class SimpleSearchHZ extends siyuan.Plugin {
             }
             this.g_setting.command_config = cfg;
         }
+        // 补全自定义顺序/隐藏项
+        const parse_completion_array = (selector) => {
+            const ele = dialog_element.querySelector(selector);
+            if (!ele) return [];
+            try {
+                const arr = JSON.parse(ele.value || '[]');
+                return Array.isArray(arr) ? arr.filter(item => typeof item === 'string') : [];
+            } catch (e) {
+                return [];
+            }
+        };
+        this.g_setting.completion_order = parse_completion_array('[data-key="completion_order_json"]');
+        this.g_setting.completion_hidden = parse_completion_array('[data-key="completion_hidden_json"]');
         dialog_element.querySelectorAll('[data-key]').forEach(ele => {
             const key = ele.dataset.key;
-            if (key === 'command_config_json') return;
+            if (key === 'command_config_json' || key === 'completion_order_json' || key === 'completion_hidden_json') return;
             if (ele.type === 'checkbox') {
                 this.g_setting[key] = ele.checked;
+            } else if (ele.type === 'number') {
+                const num = parseInt(ele.value, 10);
+                this.g_setting[key] = Number.isFinite(num) && num >= 0 ? num : 0;
             } else if (ele.tagName === 'TEXTAREA') {
                 this.g_setting[key] = ele.value.split(',').map(s => s.trim()).filter(s => s);
             } else {
@@ -2632,6 +3805,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         } else {
             this.sy_event_init();
         }
+        // 按钮显示设置立即生效(搜索页已打开时)
+        this.update_assist_btn_visibility();
         // 搜索面板不一定打开
         if (this.get_search_list()) this.show_search_res();
         return true;
@@ -2809,18 +3984,26 @@ class SimpleSearchHZ extends siyuan.Plugin {
             sw_ele.setAttribute('aria-label', sw.label);
             use_ele.setAttribute('xlink:href', sw.icon);
             assist_area.style.display = sw.display;
-            const jump_div = this.get_ele('#simpleSearchQuickJump');
-            if (this.g_setting.assist_sw) {
-                jump_div.classList.remove('fn__none');
-            }
-            else {
-                jump_div.classList.add('fn__none');
-            }
+            // 辅助区域隐藏时, 设置/指令手册按钮一起隐藏
+            this.update_assist_btn_visibility();
         });
 
-        // 2. 增加帮助按钮
+        // 2. 增加简搜设置按钮(放在指令手册左边)
         icon_parent.insertAdjacentHTML('beforeend', `
-            <span class="fn__space"></span>
+            <span class="fn__space" id="simpleSearchSettingSpace"></span>
+            <span id="simpleSearchDisplayTreeSetting" aria-label="简搜: 点击打开插件的设置页面" class="block__icon block__icon--show ariaLabel" data-position="9south">
+                <svg><use xlink:href="#iconSettings"></use></svg>
+            </span>
+        `);
+        this.get_ele('#simpleSearchDisplayTreeSetting')?.addEventListener('click', (event) => {
+            event.stopPropagation();  // 停止事件传播
+            this.openSetting();
+            event.target.blur();
+        });
+
+        // 3. 增加帮助按钮
+        icon_parent.insertAdjacentHTML('beforeend', `
+            <span class="fn__space" id="simpleSearchHelpSpace"></span>
             <span id="simpleSearchHelp" aria-label="简搜: 点击显示指令速查手册" class="block__icon block__icon--show ariaLabel" data-position="9south">
                 <svg><use xlink:href="#iconHelp"></use></svg>
             </span>
@@ -2834,26 +4017,17 @@ class SimpleSearchHZ extends siyuan.Plugin {
             }
         });
 
-        // 3. 增加帮助与反馈按钮
-        const save_ele = this.get_ele('[data-type="saveCriterion"]');
-        save_ele.insertAdjacentHTML('beforebegin', `
-            <div id="simpleSearchQuickJump" class="${this.g_setting.assist_sw ? "" : 'fn__none'}" >
-            <button id="simpleSearchGotoReadme" class="b3-button b3-button--small b3-button--outline fn__flex-center ariaLabel" aria-label="简搜: 点击跳转至插件的readme">跳转至手册</button>
-            <span class="fn__space"></span>
-            <button id="simpleSearchDisplayTreeSetting" class="b3-button b3-button--small b3-button--outline fn__flex-center ariaLabel" aria-label="简搜: 点击打开插件的设置页面">简搜设置</button>
-            <span class="fn__space"></span>
-            </div>
-        `); 
-        // const help_link = '<a href="https://gitee.com/Hug_Zephyr/HZ-syplugin-simple-search/blob/master/README.md">跳转至手册</a>';
-        this.get_ele('#simpleSearchGotoReadme')?.addEventListener('click', (event) => {
-            event.stopPropagation();  // 停止事件传播
-            window.open('https://gitee.com/Hug_Zephyr/HZ-syplugin-simple-search/blob/master/README.md', '_blank');
-            event.target.blur();
-        });
-        this.get_ele('#simpleSearchDisplayTreeSetting')?.addEventListener('click', (event) => {
-            event.stopPropagation();  // 停止事件传播
-            this.openSetting();
-            event.target.blur();
+        // 按设置应用按钮显示状态
+        this.update_assist_btn_visibility();
+    }
+    // 顶部按钮的显示与隐藏(由设置控制, 显示/隐藏按钮本身始终显示)
+    update_assist_btn_visibility() {
+        [
+            ['#simpleSearchSettingSpace', '#simpleSearchDisplayTreeSetting', this.g_setting.assist_sw && this.g_setting.btn_show_setting],
+            ['#simpleSearchHelpSpace', '#simpleSearchHelp', this.g_setting.assist_sw && this.g_setting.btn_show_help],
+        ].forEach(([space_sel, btn_sel, show]) => {
+            this.get_ele(space_sel)?.classList.toggle('fn__none', !show);
+            this.get_ele(btn_sel)?.classList.toggle('fn__none', !show);
         });
     }
     // 嵌入 辅助区域
@@ -2865,9 +4039,12 @@ class SimpleSearchHZ extends siyuan.Plugin {
     }
     hidden_search_history_list() {
         const history_ul = this.get_search_history_ul();
-        if (!history_ul) return;
-        history_ul.innerHTML = '';
-        history_ul.classList.add('fn__none');
+        const box = this.get_suggestion_box();
+        this.suggestion_mode = null;
+        this.command_completion = null;
+        if (history_ul) history_ul.innerHTML = '';
+        if (box) box.classList.add('fn__none');
+        this.update_list_hint();
     }
     // 关闭搜索历史列表, 触发原生搜索事件
     search_history_dispatch_input() {
@@ -2893,7 +4070,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             this.hidden_search_history_list();
         }
     }
-    // 提交历史记录(回车/点击/alt+↑): 拦截模式下补一次搜索, 不拦截时搜索已经实时执行过
+    // 提交历史记录(回车/点击): 拦截模式下补一次搜索, 不拦截时搜索已经实时执行过
     commit_search_history() {
         clearTimeout(this.history_timer_id);
         // 列表没有显示时, 没有可提交的内容
@@ -2905,14 +4082,65 @@ class SimpleSearchHZ extends siyuan.Plugin {
             this.history_previewing = false;
         }
     }
+    // Alt+↓: 切换历史列表; 手动状态只在当前搜索页有效
+    toggle_history_suggestion(input = this.get_search_input()) {
+        const state = this.get_page_suggestion_state(input);
+        if (!state || !input) return;
+        if (this.is_show_history_list()) {
+            state.history = 'hide';
+            this.cancel_search_history();
+            return;
+        }
+        state.history = 'show';
+        if (this.is_show_command_list()) this.hide_command_completion();
+        clearTimeout(this.history_timer_id);
+        const history = matchHistory(input.value, SYT.get_search_history(), true);
+        this.show_search_history_list(history, true);
+    }
+    // Tab: 切换指令补全列表; 没有常规候选时列出所有指令
+    toggle_command_suggestion(input = this.get_search_input()) {
+        const state = this.get_page_suggestion_state(input);
+        if (!state || !input) return;
+        if (this.is_show_command_list()) {
+            state.command = 'hide';
+            this.hide_command_completion();
+            return;
+        }
+        state.command = 'show';
+        if (this.is_show_history_list()) {
+            // 切换前若在预览历史, 先恢复手打内容, 避免把预览项带到补全里
+            if (this.history_previewing) {
+                input.value = this.history_typed_value;
+                input.setSelectionRange(input.value.length, input.value.length);
+            }
+            this.history_previewing = false;
+            this.hidden_search_history_list();
+        }
+        const sort_ctx = this.get_completion_sort_ctx();
+        const result = get_command_complete(this.g_setting.command_config, input.value, input.selectionStart, true, sort_ctx)
+            || get_all_command_candidates(this.g_setting.command_config, input.value, input.selectionStart, sort_ctx);
+        if (result && result.candidates.length) this.show_command_completion(result);
+    }
     // 插入搜索历史列表所在的元素
     insert_search_history_list() {
         const prev_ele = this.get_search_input()?.parentElement.parentElement;
         prev_ele.insertAdjacentHTML('afterend', `
-            <ul id="simpleSearchHistoryList" class="HZ-search-history-list b3-menu b3-menu--list b3-list b3-list--background fn__none"></ul>
+            <div id="simpleSearchSuggestionBox" class="HZ-search-suggestion-box b3-menu fn__none">
+                <div id="simpleSearchHistoryTopHint" class="HZ-search-list-hint HZ-search-list-hint--top fn__none" aria-hidden="true">↑ 还有 0 项</div>
+                <ul id="simpleSearchHistoryList" class="HZ-search-history-list b3-list b3-list--background"></ul>
+                <div id="simpleSearchHistoryBottomHint" class="HZ-search-list-hint HZ-search-list-hint--bottom fn__none" aria-hidden="true">↓ 还有 0 项</div>
+            </div>
         `);
-        this.get_search_history_ul().addEventListener('click', (event) => {
+        const history_ul = this.get_search_history_ul();
+        history_ul.addEventListener('scroll', () => this.update_list_hint(), { passive: true });
+        history_ul.addEventListener('click', (event) => {
             const ele = event.target;
+            if (this.suggestion_mode === 'command') {
+                const cmd_li = ele.closest('li.HZ-search-command-li');
+                if (!cmd_li) return;
+                this.apply_command_candidate(Number(cmd_li.dataset.index));
+                return;
+            }
             const li = ele.closest('li.HZ-search-history-li');
             const input = this.get_search_input();
             if (ele.closest('svg.HZ-search-history-svg')) {
@@ -2923,6 +4151,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 // 删空后直接隐藏列表, 避免留下空壳
                 if (!this.get_search_history_ul()?.children.length) {
                     this.hidden_search_history_list();
+                } else {
+                    this.update_list_hint();
                 }
                 // 光标聚焦到输入框, 方便点击了删除按钮之后, 继续通过上下键选择搜索历史
                 input.focus();
@@ -2952,74 +4182,142 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.history_previewing = value !== this.history_typed_value;
     }
 
-    // 搜索框高度变化后, 重新定位已显示的历史列表
+    // 搜索框高度变化后, 重新定位已显示的历史/补全列表
     reposition_search_history_list() {
         const input = this.get_search_input();
-        const history_ul = this.get_search_history_ul();
-        if (!input || !history_ul || !this.is_show_history_list()) return;
-        const rect = input.getBoundingClientRect();
-        history_ul.style.left = `${rect.left+32}px`;
-        history_ul.style.top  = `${rect.bottom}px`;
-        this.limit_search_history_list_height();
+        const box = this.get_suggestion_box();
+        if (!input || !box) return;
+        if (!this.is_show_history_list() && !this.is_show_command_list()) return;
+        const rect = this.position_suggestion_box();
+        if (!rect) return;
+        this.limit_suggestion_list_height(this.get_suggestion_row_limit());
     }
 
-    // 按窗口剩余空间限制历史列表高度, 至少保留一行, 超出部分在列表内部滚动
-    // 不拦截搜索时列表只作建议层, 再压到最多 8 行, 避免遮挡实时结果
-    limit_search_history_list_height() {
+    // 建议列表容器定位在输入框下方
+    position_suggestion_box() {
+        const input = this.get_search_input();
+        const box = this.get_suggestion_box();
+        if (!input || !box) return null;
+        const rect = input.getBoundingClientRect();
+        box.style.left = `${rect.left+32}px`;
+        box.style.top = `${rect.bottom}px`;
+        box.style.width = `${rect.width}px`;
+        return rect;
+    }
+
+    // 当前建议列表的最大行数, 0 表示不限制(只按窗口高度)
+    get_suggestion_row_limit() {
+        let value;
+        if (this.suggestion_mode === 'command') {
+            value = this.g_setting.command_rows;
+        } else if (this.g_setting.intercept_search) {
+            value = this.g_setting.history_rows_intercept;
+        } else {
+            value = this.g_setting.history_rows_normal;
+        }
+        const num = Number(value);
+        return Number.isFinite(num) && num > 0 ? Math.floor(num) : 0;
+    }
+
+    // 按窗口剩余空间限制建议列表高度, 至少保留一行, 超出部分在列表内部滚动
+    // row_limit>0 时再限制最多显示的行数
+    limit_suggestion_list_height(row_limit) {
         const input = this.get_search_input();
         const history_ul = this.get_search_history_ul();
         if (!input || !history_ul) return;
         // 先清掉旧值, 才能量出完整高度
         history_ul.style.maxHeight = '';
         const rect = input.getBoundingClientRect();
-        const avail_height = window.innerHeight - rect.bottom - 8;
+        // 预留上下提示条的空间和容器边框, 避免提示出现时把列表顶出窗口
+        const avail_height = window.innerHeight - rect.bottom - 8 - 42;
         let limit_height = avail_height;
-        if (!this.g_setting.intercept_search && history_ul.children.length > 8) {
+        if (row_limit > 0 && history_ul.children.length > row_limit) {
             const list_top = history_ul.getBoundingClientRect().top;
-            // 列表内部可能已经滚动, 补回 scrollTop 才是第 8 行的真实位置
-            const eighth_bottom = history_ul.children[7].getBoundingClientRect().bottom + history_ul.scrollTop;
-            limit_height = Math.min(limit_height, eighth_bottom - list_top + 8);
+            // 列表内部可能已经滚动, 补回 scrollTop 才是目标行的真实位置
+            const row_bottom = history_ul.children[row_limit - 1].getBoundingClientRect().bottom + history_ul.scrollTop;
+            limit_height = Math.min(limit_height, row_bottom - list_top + 8);
         }
         if (history_ul.getBoundingClientRect().height > limit_height) {
             history_ul.style.maxHeight = `${Math.max(limit_height, 40)}px`;
         }
+        this.update_list_hint();
+    }
+
+    // 更新列表上下滚动提示: 未到顶显示上提示, 未到底显示下提示
+    update_list_hint() {
+        const box = this.get_suggestion_box();
+        const history_ul = this.get_search_history_ul();
+        const top_hint = this.get_ele('#simpleSearchHistoryTopHint');
+        const bottom_hint = this.get_ele('#simpleSearchHistoryBottomHint');
+        if (!box || !history_ul || !top_hint || !bottom_hint) return;
+        if (box.classList.contains('fn__none')) {
+            top_hint.classList.add('fn__none');
+            bottom_hint.classList.add('fn__none');
+            return;
+        }
+        const max_scroll = history_ul.scrollHeight - history_ul.clientHeight;
+        const scrollable = max_scroll > 1;
+        const total = history_ul.children.length;
+        let above = 0;
+        let below = 0;
+        if (scrollable && total > 0) {
+            const row_h = history_ul.children[0].getBoundingClientRect().height;
+            if (row_h > 0) {
+                above = Math.max(0, Math.min(total, Math.ceil(history_ul.scrollTop / row_h)));
+                const visible_full = Math.floor((history_ul.scrollTop + history_ul.clientHeight) / row_h);
+                below = Math.max(0, Math.min(total, total - visible_full));
+            }
+        }
+        top_hint.textContent = `↑ 还有 ${above} 项`;
+        bottom_hint.textContent = `↓ 还有 ${below} 项`;
+        // 没有更多内容的一侧直接收起, 不占位
+        top_hint.classList.toggle('fn__none', !(scrollable && above > 0));
+        bottom_hint.classList.toggle('fn__none', !(scrollable && below > 0));
     }
 
     // 更新搜索历史列表的显示
     update_search_history_list_html(history) {
         this.hidden_search_history_list();
         const history_ul = this.get_search_history_ul();
-        if (!history_ul) return;
+        const box = this.get_suggestion_box();
+        if (!history_ul || !box) return;
         // 如果没有历史记录，直接返回（保持隐藏状态）
         if (!history.length) return;
-        const rect = this.get_search_input()?.getBoundingClientRect();
         const input_val = this.get_search_input()?.value || '';
         for (let i = 0; i < history.length; i++) {
             const html_val = history[i];
-            const real_val = html_val.replace(/<span class="HZ-search-history-highlight">/g, "").replace(/<\/span>/g, "");
+            const real_val = unescapeHtml(html_val.replace(/<span class="HZ-search-history-highlight">/g, "").replace(/<\/span>/g, ""));
             // 首行是当前输入, 不提供删除按钮
             const is_current = i === 0 && !!input_val;
             const close_html = is_current ? '' : `<svg class="HZ-search-history-svg b3-menu__action b3-menu__action--close"><use xlink:href="#iconCloseRound"></use></svg>`;
-            history_ul.insertAdjacentHTML('beforeend', `<li class="HZ-search-history-li b3-list-item${is_current ? ' HZ-search-history-li--current' : ''}" style="width:${rect.width}px" title="${escapeHtml(real_val)}"><span class="b3-list-item__text">${html_val}</span>${close_html}</li>`);
+            history_ul.insertAdjacentHTML('beforeend', `<li class="HZ-search-history-li b3-list-item${is_current ? ' HZ-search-history-li--current' : ''}" title="${escapeHtml(real_val)}"><span class="b3-list-item__text">${html_val}</span>${close_html}</li>`);
             // tempMenu.addSeparator(1);
         }
-        // 获取位置信息
-        history_ul.style.left = `${rect.left+32}px`;
-        history_ul.style.top  = `${rect.bottom}px`;
-        // 显示
-        history_ul.classList.remove('fn__none');
+        // 定位并显示
+        this.position_suggestion_box();
+        box.classList.remove('fn__none');
+        this.suggestion_mode = 'history';
         this.select_search_history_item(history_ul.firstElementChild);
         // 按窗口剩余空间限高, 每次显示都重新计算, 避免沿用旧值
-        this.limit_search_history_list_height();
+        this.limit_suggestion_list_height(this.get_suggestion_row_limit());
     }
     // 显示历史搜索记录
-    // force=true 用于 alt+↓ 强制调出: 跳过关闭/智能显示规则, 完整展示历史
+    // force=true 用于手动调出: 跳过关闭/智能显示规则, 完整展示历史
     show_search_history_list(history, force = false) {
         const search_input = this.get_search_input();
         if (!search_input) return;
+        const state = this.get_page_suggestion_state(search_input);
+        const intercept = !!this.g_setting.intercept_search;
+        // 当前页手动关闭历史: 不再自动显示
+        if (state?.history === 'hide') {
+            if (intercept) this.search_history_dispatch_input();
+            else this.hidden_search_history_list();
+            return;
+        }
+        // 当前页手动打开历史: 继续输入也保持显示
+        force = force || state?.history === 'show';
         const input_val = escapeHtml(search_input.value);
         const input_html = `<span class="HZ-search-history-highlight">${input_val}</span>`;
-        const intercept = !!this.g_setting.intercept_search;
         // 记录手打的内容, 上下键预览之后可以恢复到这里
         this.history_typed_value = search_input.value;
         if (!force) {
@@ -3047,6 +4345,209 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // 更新html
         this.update_search_history_list_html(history);
     }
+
+    // 指令补全: 命中时立即显示并暂停搜索, 返回是否显示了补全列表
+    update_command_completion(value, caret, input = this.get_search_input()) {
+        const state = this.get_page_suggestion_state(input);
+        const manual = state ? state.command : null;
+        // 手动状态优先: show 时忽略设置, hide 时禁止自动显示
+        const enabled = manual === 'show' || (manual === null && this.g_setting.command_complete);
+        if (!enabled) {
+            if (this.suggestion_mode === 'command') this.hide_command_completion();
+            return false;
+        }
+        const result = get_command_complete(this.g_setting.command_config, value, caret, false, this.get_completion_sort_ctx());
+        if (result && result.candidates.length) {
+            this.show_command_completion(result);
+            return true;
+        }
+        if (this.suggestion_mode === 'command') this.hide_command_completion();
+        return false;
+    }
+
+    // 渲染指令补全列表(复用历史列表的元素)
+    show_command_completion(result) {
+        const input = this.get_search_input();
+        const history_ul = this.get_search_history_ul();
+        const box = this.get_suggestion_box();
+        if (!input || !history_ul || !box) return;
+        clearTimeout(this.history_timer_id);
+        this.hidden_search_history_list();
+        this.suggestion_mode = 'command';
+        this.command_completion = result;
+        this.history_previewing = false;
+        this.history_typed_value = input.value;
+        result.candidates.forEach((c, i) => {
+            const name = c.name ? `<span class="HZ-search-command-name">${escapeHtml(c.name)}</span>` : '';
+            const hint = c.hint ? `<span class="HZ-search-command-hint">${escapeHtml(c.hint)}</span>` : '';
+            const title = [c.label, c.name, c.hint].filter(Boolean).join(' ');
+            history_ul.insertAdjacentHTML('beforeend', `<li class="HZ-search-command-li b3-list-item" data-index="${i}" title="${escapeHtml(title)}"><span class="b3-list-item__text"><span class="HZ-search-command-token">${escapeHtml(c.label)}</span>${name}${hint}</span></li>`);
+        });
+        this.position_suggestion_box();
+        box.classList.remove('fn__none');
+        this.select_command_item(result.default_index || 0);
+        this.limit_suggestion_list_height(this.get_suggestion_row_limit());
+    }
+
+    // 选中补全列表中的某一项(只移动高亮, 不改写输入框)
+    select_command_item(index) {
+        const history_ul = this.get_search_history_ul();
+        if (!history_ul || this.suggestion_mode !== 'command') return;
+        const items = Array.from(history_ul.querySelectorAll('li.HZ-search-command-li'));
+        if (!items.length) return;
+        index = ((index % items.length) + items.length) % items.length;
+        items.forEach(li => li.classList.remove('b3-list-item--focus'));
+        const item = items[index];
+        item.classList.add('b3-list-item--focus');
+        item.scrollIntoView({behavior: 'auto', block: 'center'});
+        this.command_index = index;
+    }
+
+    // 应用补全项
+    apply_command_candidate(index) {
+        if (this.suggestion_mode !== 'command' || !this.command_completion) return;
+        const result = this.command_completion;
+        const cand = result.candidates[index];
+        const input = this.get_search_input();
+        if (!cand || !input) return;
+        clearTimeout(this.history_timer_id);
+        const start = result.token_start;
+        const end = result.token_end;
+        const value = input.value;
+
+        // 所有指令列表: 在光标处插入, 必要时补空格, 避免和前后文字粘连
+        if (result.insert_at_caret) {
+            const before = value.slice(0, start);
+            const after = value.slice(end);
+            const prefix = before && !/\s$/.test(before) && !/^\s/.test(cand.insert) ? ' ' : '';
+            if (cand.kind === 'key') {
+                // kv key: 把光标停在 key 末尾, 继续弹出值菜单
+                const sep = after && !/^\s/.test(after) ? ' ' : '';
+                const new_value = before + prefix + cand.insert + sep + after;
+                const caret = before.length + prefix.length + cand.insert.length;
+                this.set_command_value(input, new_value, caret);
+                this.refresh_command_completion();
+                return;
+            }
+            // 与后面的文字分开; trailing_space 的指令再补一个空格, 方便继续输入关键词
+            let text = cand.insert;
+            if (cand.trailing_space) {
+                if (!after || !/^\s/.test(after)) text += ' ';
+            } else if (after && !/^\s/.test(after)) {
+                text += ' ';
+            }
+            const new_value = before + prefix + text + after;
+            let caret = before.length + prefix.length + text.length;
+            if (cand.trailing_space) {
+                // 后面本来就有空白时, 光标跳到空白之后
+                while (caret < new_value.length && /\s/.test(new_value[caret])) caret++;
+            }
+            this.set_command_value(input, new_value, caret);
+            this.hide_command_completion();
+            return;
+        }
+
+        // kv 多值链(块类型/排序): 选一个值后追加逗号并保持菜单; 空格项结束
+        if (result.chain) {
+            if (cand.kind === 'space') {
+                const token = value.slice(start, end).replace(/,+$/, '');
+                let text = token;
+                if (!/\s/.test(value.slice(end))) text += ' ';
+                const new_value = value.slice(0, start) + text + value.slice(end);
+                let caret = start + text.length;
+                while (caret < new_value.length && /\s/.test(new_value[caret])) caret++;
+                this.set_command_value(input, new_value, caret);
+                this.hide_command_completion();
+                return;
+            }
+            const text = cand.insert + ',';
+            const new_value = value.slice(0, start) + text + value.slice(end);
+            this.set_command_value(input, new_value, start + text.length);
+            this.refresh_command_completion();
+            return;
+        }
+
+        // 时间表达式: 逐步引导; 选字段/比较符/连接符后保持菜单, 日期提示项只关闭菜单
+        if (result.time) {
+            if (cand.kind === 'hint') {
+                this.hide_command_completion();
+                return;
+            }
+            if (cand.kind === 'value') {
+                const new_value = value.slice(0, start) + cand.insert + value.slice(end);
+                this.set_command_value(input, new_value, start + cand.insert.length);
+                this.refresh_command_completion(true);
+                return;
+            }
+        }
+
+        if (cand.kind === 'single' || cand.kind === 'terminal') {
+            const new_value = value.slice(0, end) + cand.insert + value.slice(end);
+            this.set_command_value(input, new_value, end + cand.insert.length);
+            if (cand.close) {
+                this.hide_command_completion();
+            } else {
+                this.refresh_command_completion();
+            }
+            return;
+        }
+        if (cand.kind === 'space') {
+            const insert = /\s/.test(value[end] || '') ? '' : ' ';
+            const new_value = value.slice(0, end) + insert + value.slice(end);
+            let caret = end + insert.length;
+            while (caret < new_value.length && /\s/.test(new_value[caret])) caret++;
+            this.set_command_value(input, new_value, caret);
+            this.hide_command_completion();
+            return;
+        }
+
+        // 多字符 / 完整的 kv 值 / kv key / 值: 替换整个 token
+        let text = cand.insert;
+        if (cand.trailing_space && !/^\s/.test(value.slice(end))) text += ' ';
+        const new_value = value.slice(0, start) + text + value.slice(end);
+        let caret = start + text.length;
+        if (cand.trailing_space) {
+            // 后面本来就有空白时, 光标跳到空白之后
+            while (caret < new_value.length && /\s/.test(new_value[caret])) caret++;
+        }
+        this.set_command_value(input, new_value, caret);
+        if (cand.kind === 'key') {
+            // kv key: 立即进入值菜单
+            this.refresh_command_completion();
+            return;
+        }
+        this.hide_command_completion();
+    }
+
+    set_command_value(input, value, caret) {
+        input.value = value;
+        this.history_typed_value = value;
+        this.history_previewing = false;
+        input.focus();
+        input.setSelectionRange(caret, caret);
+    }
+
+    // 程序化插入后重新计算补全列表
+    refresh_command_completion(manual = false) {
+        const input = this.get_search_input();
+        if (!input) {
+            this.hide_command_completion();
+            return;
+        }
+        const result = get_command_complete(this.g_setting.command_config, input.value, input.selectionStart, manual, this.get_completion_sort_ctx());
+        if (!result || !result.candidates.length) {
+            this.hide_command_completion();
+            return;
+        }
+        this.show_command_completion(result);
+    }
+
+    hide_command_completion() {
+        clearTimeout(this.history_timer_id);
+        this.hidden_search_history_list();
+        this.command_index = 0;
+    }
+
     // 接管搜索历史
     handle_search_history() {
         //嵌入搜索历史列表
@@ -3070,7 +4571,12 @@ class SimpleSearchHZ extends siyuan.Plugin {
             this.history_timer_id = setTimeout(() => this.show_search_history_list(history), 200);
         };
         inputElement?.addEventListener('compositionend', (event) => {
-            if (this.g_setting.history_auto === 'close') return;
+            // 指令补全独立于历史模式, 命中时暂停搜索
+            if (this.update_command_completion(inputElement.value, inputElement.selectionStart, inputElement)) {
+                event.stopPropagation();
+                return;
+            }
+            if (this.get_history_auto_mode(inputElement) === 'close') return;
             if (!this.g_setting.intercept_search) {
                 // 不拦截搜索: 交给原生处理, 这里只刷新历史建议
                 this.history_typed_value = inputElement.value;
@@ -3086,16 +4592,43 @@ class SimpleSearchHZ extends siyuan.Plugin {
         }, true);
         inputElement?.addEventListener('input', (event) => {
             // console.log('input事件触发', event.inputType, event.target.value, this.history_input_flag, event.isComposing, this.is_searching);
-            if (this.g_setting.history_auto === 'close') {
-                // 关闭模式不接管输入; 清掉可能残留的标记, 避免下一次输入被误判为历史触发
-                this.history_input_flag = false;
-                return;
-            }
             const intercept = !!this.g_setting.intercept_search;
             if (this.history_input_flag) {
                 // 由历史记录触发的原生 input 事件: 放行给思源执行搜索
                 this.history_input_flag = false;
                 this.is_searching = true;
+                return;
+            }
+            // 用户修改了输入, 下一次搜索/点击结果重新计数
+            {
+                const page = inputElement.closest('.fn__flex-column');
+                if (page && this._last_counted_queries) this._last_counted_queries.delete(page);
+            }
+            // 多值链中手动输入空格: 去掉末尾逗号, 和列表里的"空格(结束)"保持一致
+            if (!event.isComposing && event.inputType === 'insertText' && event.data === ' ') {
+                const caret = inputElement.selectionStart;
+                const val = inputElement.value;
+                if (caret >= 2 && val[caret - 1] === ' ' && val[caret - 2] === ',') {
+                    let token_start = caret - 2;
+                    while (token_start > 0 && !/\s/.test(val[token_start - 1])) token_start--;
+                    const token = val.slice(token_start, caret - 2);
+                    if (token.startsWith('--type=') || token.startsWith('--sort=')) {
+                        inputElement.value = val.slice(0, caret - 2) + ' ' + val.slice(caret);
+                        inputElement.setSelectionRange(caret - 1, caret - 1);
+                    }
+                }
+            }
+            // 指令补全优先于历史记录, 显示期间始终暂停搜索
+            if (!event.isComposing &&
+                this.update_command_completion(event.target.value, inputElement.selectionStart, inputElement)) {
+                event.stopPropagation();
+                this.history_typed_value = event.target.value;
+                this.history_previewing = false;
+                return;
+            }
+            if (this.get_history_auto_mode(inputElement) === 'close') {
+                // 关闭模式不接管输入; 清掉可能残留的标记, 避免下一次输入被误判为历史触发
+                this.history_input_flag = false;
                 return;
             }
             if (intercept && this.is_searching) {
@@ -3118,42 +4651,67 @@ class SimpleSearchHZ extends siyuan.Plugin {
             schedule_history_list(event.target.value);
         }, true);
 
+        inputElement?.addEventListener('mousedown', () => {
+            // 鼠标点回输入框: 光标位置可能变化, 立即关闭补全
+            if (this.is_show_command_list()) this.hide_command_completion();
+        });
         // 搜索历史列表相关事件监听
         inputElement?.addEventListener('keydown', (event) => {
-            if (event.ctrlKey || event.shiftKey || event.metaKey) return;
             const type = event.key.toLowerCase();
-            if (event.altKey) {
-                // 处理历史记录快捷键
+            // Alt+↓ 切换历史列表; Tab 切换指令补全列表
+            // 手动状态只在当前搜索页有效, 不修改任何设置
+            if (event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey && type === 'arrowdown') {
                 if (!this.g_setting.replace_history) return;
-                if (type == 'arrowup') {
-                    event.stopPropagation();
-                    if (this.g_setting.history_auto !== 'close') {
-                        this.g_setting.history_auto = 'close';
-                        this.save_plugin_setting();
-                    }
-                    this.commit_search_history();
+                event.preventDefault();
+                event.stopPropagation();
+                this.toggle_history_suggestion(inputElement);
+                return;
+            }
+            if (type === 'tab' && !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey) {
+                if (!this.g_setting.command_shortcut) return;
+                event.preventDefault();
+                event.stopPropagation();
+                this.toggle_command_suggestion(inputElement);
+                return;
+            }
+            if (this.is_show_command_list()) {
+                // 其他 Alt 组合键不处理, 保持补全打开
+                if (event.altKey) return;
+                // 快捷键关闭时, Tab 会离开输入框, 顺手关闭补全
+                if (type === 'tab') {
+                    this.hide_command_completion();
+                    return;
                 }
-                else if (type == 'arrowdown') {
+                if (event.ctrlKey || event.shiftKey || event.metaKey) {
+                    if (event.shiftKey && (type === 'arrowup' || type === 'arrowdown')) {
+                        this.hide_command_completion();
+                    }
+                    return;
+                }
+                switch(type) {
+                case 'arrowdown':
+                case 'arrowup':
+                    event.preventDefault();
                     event.stopPropagation();
-                    if (this.g_setting.history_auto === 'close') {
-                        this.g_setting.history_auto = 'always';
-                        this.save_plugin_setting();
-                    }
-                    if (this.is_show_history_list()) {
-                        // 强制隐藏
-                        this.commit_search_history();
-                    }
-                    else {
-                        // 强制显示历史记录
-                        clearTimeout(this.history_timer_id);
-                        const input = this.get_search_input().value;
-                        const history = matchHistory(input, SYT.get_search_history(), true);
-                        this.show_search_history_list(history, true);
-                    }
+                    this.select_command_item((this.command_index || 0) + (type === 'arrowdown' ? 1 : -1));
+                    break;
+                case 'enter':
+                    event.preventDefault();
+                    event.stopPropagation();
+                    this.apply_command_candidate(this.command_index || 0);
+                    break;
+                case 'escape':
+                    event.preventDefault();
+                    event.stopPropagation();
+                    this.hide_command_completion();
+                    break;
                 }
                 return;
             }
-            else if(this.is_show_history_list()) {
+            if (event.ctrlKey || event.shiftKey || event.metaKey) return;
+            // 其他 alt 组合键不处理
+            if (event.altKey) return;
+            if(this.is_show_history_list()) {
                 // 没有alt键 有历史记录
                 switch(type) {
                 case 'arrowdown':
@@ -3189,13 +4747,34 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 }
             }
         });
+        inputElement?.addEventListener('keyup', (event) => {
+            // 左右/Home/End 移动光标后, 按新位置重新判断是否显示补全
+            if (event.isComposing) return;
+            if (event.ctrlKey || event.shiftKey || event.metaKey || event.altKey) return;
+            const type = event.key.toLowerCase();
+            if (type !== 'arrowleft' && type !== 'arrowright' && type !== 'home' && type !== 'end') return;
+            this.update_command_completion(inputElement.value, inputElement.selectionStart, inputElement);
+        });
+        inputElement?.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' || event.isComposing) return;
+            if (event.altKey || event.ctrlKey || event.shiftKey || event.metaKey) return;
+            // 建议列表打开时回车用于选择, 不算搜索
+            if (this.is_show_history_list() || this.is_show_command_list()) return;
+            this.count_completion_usage(inputElement.value, inputElement);
+        }, true);
         // 如果有搜索历史列表, 点击其他地方, 就退出
         if (!this.search_history_click_close_listener) {
             this.search_history_click_close_listener=true;
             document.addEventListener('click', (event) => {
-                if (!this.is_show_history_list()) return;
-                if (event.composedPath().includes(this.get_search_input())) return;
-                if (event.composedPath().includes(this.get_search_history_ul())) return;
+                if (!this.is_show_history_list() && !this.is_show_command_list()) return;
+                const path = event.composedPath();
+                if (path.includes(this.get_search_input())) return;
+                if (path.includes(this.get_suggestion_box())) return;
+                if (path.includes(this.get_search_history_ul())) return;
+                if (this.is_show_command_list()) {
+                    this.hide_command_completion();
+                    return;
+                }
                 this.cancel_search_history();
             }, true);
         }
@@ -3210,7 +4789,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             const type = event.key.toLowerCase();
             if (type != 'arrowup' && type != 'arrowdown' && type != 'enter') return;
             const new_tree = this.get_new_search_list();
-            if (new_tree && !this.is_show_history_list()) {
+            if (new_tree && !this.is_show_history_list() && !this.is_show_command_list()) {
                 // 没有历史记录列表 && 存在新列表 就接管上下键
                 // 原生搜索历史存在, 不处理
                 if (document.querySelector('[data-name="search-history"]')) return;
@@ -3263,6 +4842,20 @@ class SimpleSearchHZ extends siyuan.Plugin {
 
         // 接管搜索历史
         this.handle_search_history();
+
+        // 点击搜索结果时结算一次补全使用次数
+        if (!this._result_click_count_listener) {
+            this._result_click_count_listener = true;
+            document.addEventListener('click', (event) => {
+                const item = event.target?.closest?.('[data-type="search-item"]');
+                if (!item) return;
+                if (!item.closest('#searchList, #HZsimpleSearchList')) return;
+                const page = item.closest('.fn__flex-column');
+                const page_input = page?.querySelector('#searchInput');
+                const query = page_input?.value || this.get_search_input()?.value || '';
+                this.count_completion_usage(query, page_input);
+            }, true);
+        }
 
         // 新文档树事件
         // 3.接管上下键选中节点的效果
@@ -3538,7 +5131,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         });
         // 2. 打开新文档树的第一个文档
         const first_file = new_tree.querySelector('[data-type="search-item"]')
-        if (!this.is_show_history_list() && first_file && !first_file.classList.contains('b3-list-item--focus')) {
+        if (!this.is_show_history_list() && !this.is_show_command_list() && first_file && !first_file.classList.contains('b3-list-item--focus')) {
             // 没有历史记录列表 && 第一个文档没有被选中的时候, 打开新文档树的第一个文档
             first_file.click();
         }
@@ -3963,8 +5556,11 @@ class SimpleSearchHZ extends siyuan.Plugin {
     }
     // 关闭总开关时, 移除已经插入到搜索界面里的元素
     remove_plugin_ui() {
-        ['#simpleSearchShowSw', '#simpleSearchHelp', '#simpleSearchQuickJump',
-         '#simpleSearchAssistArea', '#simpleSearchHistoryList'].forEach(sel => {
+        ['#simpleSearchShowSw',
+         '#simpleSearchDisplayTreeSetting', '#simpleSearchSettingSpace',
+         '#simpleSearchHelp', '#simpleSearchHelpSpace',
+         '#simpleSearchAssistArea', '#simpleSearchSuggestionBox', '#simpleSearchHistoryList',
+         '#simpleSearchHistoryTopHint', '#simpleSearchHistoryBottomHint'].forEach(sel => {
             document.querySelectorAll(sel).forEach(ele => ele.remove());
         });
         this.clear_highlight();
@@ -4029,26 +5625,23 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.history_typed_value = '';    // 用户手打的历史搜索内容, 取消预览时用于恢复
         this.history_previewing  = false; // 输入框内容是否由历史项预览写入
         this.history_timer_id    = 0;     // 历史列表延迟显示的定时器
+        this.suggestion_mode     = null;  // 建议列表模式: history / command
+        this.command_completion  = null;  // 当前指令补全的结果
+        this.command_index       = 0;     // 指令补全当前高亮项
 
+        this.completion_usage         = {};    // 补全形式使用次数
+        this._completion_usage_loaded = false;
+        this._completion_usage_dirty  = false;
+        this._completion_usage_ignore_load = false;
+        this._last_counted_queries    = new WeakMap(); // 每个搜索页已计数的查询
+        this._completion_usage_save_timer = 0;
+        this._completion_entries_cache = null;
+        this._result_click_count_listener = false;
+
+        this.page_suggestion_states = new WeakMap(); // 每个搜索页各自的历史/补全手动开关状态
         this.query        = {type:"", val:"", keywords:[], help:{}}; // 解析后的内容 {type: 搜索类型, val: 搜索内容, keywords: 关键词}
-        this.g_setting    = {
-            plugin_enabled    : true,           // 插件总开关
-            log_level         : 'info',         // 日志等级: off/error/warn/info/debug
-            assist_sw         : true,           // 辅助信息显示框 是否显示
-            history_auto      : 'smart',        // 自动显示历史记录: close-关闭, smart-智能显示, always-总是显示
-            intercept_search  : true,           // 历史列表显示期间是否拦截(暂停)原生搜索
-            replace_history   : true,           // 历史记录快捷键(alt+↑/↓)是否启用
-            replace_search_res: true,           // 是否接管搜索结果
-            restree_style     : "native_tree",  // 文档树样式: 原生列表:native_list, 原生树:native_tree, 多彩:colorful, ediary
-            sync_file         : true,           // 搜索结果的样式是否同步到文档树那里
-            search_res_top    : true,           // 文档下的结果是否置顶
-            restree_all_path  : true,           // 显示全路径
-            is_highlight_open : true,           // 通过 双击/回车 跳转到对应位置后, 高亮搜索的关键词
-            is_blink_open     : false,          // 通过 双击/回车 跳转到对应位置后, 闪烁当前的块
-            cursor_position   : "after",        // 通过 双击/回车 跳转到对应位置后, 光标效果: 不处理:none, 之前:before, 选中:select, 之后:after
-            ignored_inputs    : ["/", "//", "-", "--"], // 需要阻止搜索的特殊输入
-            command_config    : null,           // 指令配置(分类/key/三种形式), 首次加载时用默认值
-        }
+        this.g_setting    = get_default_plugin_settings();
+        this.load_completion_usage();
         this.load_plugin_setting(() => {
             this.save_plugin_setting();
             this.init_css_style();
@@ -4064,6 +5657,12 @@ class SimpleSearchHZ extends siyuan.Plugin {
         if (window.siyuan.isPublish) return;
         this.uninit_css_style();
         this.sy_event_uninit()
+        // 立即落盘使用次数, 避免防抖计时器未触发
+        clearTimeout(this._completion_usage_save_timer);
+        if (this._completion_usage_loaded || this._completion_usage_dirty) {
+            const ret = this.saveData("completion_usage.json", JSON.stringify(this.completion_usage || {}));
+            if (ret && ret.catch) ret.catch(() => {});
+        }
         mylog_info("HZ simple search stop...")
     }
 };
