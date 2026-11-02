@@ -3733,10 +3733,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         };
         update_history_prefix_only_disabled();
         history_auto_ele?.addEventListener('change', update_history_prefix_only_disabled);
-        // 重置所有: 只重置表单, 点击保存后才真正生效
-        let reset_all_pending = false;
-        reset_all_btn?.addEventListener('click', () => {
-            reset_all_pending = true;
+        // 重置所有: 确认后立即恢复默认并保存
+        const reset_all_form = () => {
             const defaults = get_default_plugin_settings();
             dialog.element.querySelectorAll('[data-key]').forEach(ele => {
                 const key = ele.dataset.key;
@@ -3751,9 +3749,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
             render_command_editor(JSON.parse(JSON.stringify(defaults.command_config)));
             if (completion_sort_ele) completion_sort_ele.value = defaults.completion_sort || 'config';
             render_completion_order(defaults.completion_order || [], defaults.completion_hidden || [], defaults.command_config);
-        });
-        cancel_btn?.addEventListener('click', () => dialog.destroy());
-        save_btn?.addEventListener('click', () => {
+        };
+        const save_settings = (reset_all = false) => {
             // 把可视化编辑结果写回隐藏的 JSON 字段, 由 apply_setting_from_dialog 统一校验
             if (editor_ele && json_ele && base_cfg) {
                 json_ele.value = JSON.stringify(read_command_config_from_editor(editor_ele, base_cfg));
@@ -3767,8 +3764,17 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     return sw && !sw.checked;
                 }).map(row => row.dataset.orderKey));
             }
-            if (this.apply_setting_from_dialog(dialog.element, reset_all_pending) === false) return;
-            dialog.destroy();
+            return this.apply_setting_from_dialog(dialog.element, reset_all) !== false;
+        };
+        reset_all_btn?.addEventListener('click', () => {
+            siyuan.confirm('重置所有设置', '确定要把所有设置恢复为默认值并立即保存吗？', () => {
+                reset_all_form();
+                if (save_settings(true)) dialog.destroy();
+            });
+        });
+        cancel_btn?.addEventListener('click', () => dialog.destroy());
+        save_btn?.addEventListener('click', () => {
+            if (save_settings(false)) dialog.destroy();
         });
     }
     // 保存设置面板中的修改
