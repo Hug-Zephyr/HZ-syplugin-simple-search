@@ -3075,9 +3075,9 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     content: "";
                     visibility: visible;
                     position: absolute;
-                    left: 21px;
+                    left: 18px;
                     width: 15px;
-                    height: 1px;
+                    height: 13px;
                     background: transparent;
                     border-bottom: 1px dashed var(--HZ-sp-vertical-line-color);
                     z-index: 1;
