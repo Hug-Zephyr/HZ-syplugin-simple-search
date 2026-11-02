@@ -41,21 +41,36 @@
     background-color: var(--b3-menu-background);
 }
 
-/* 列表上下滚动提示(容器内占位) */
+/* 列表上下滚动提示(悬浮, 不占布局空间) */
 .HZ-search-list-hint {
-    flex: 0 0 20px;
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: 2;
+    box-sizing: border-box;
     height: 20px;
     line-height: 20px;
-    box-sizing: border-box;
     padding: 0 8px;
     font-size: 11.5px;
     font-weight: 500;
     white-space: nowrap;
     text-align: center;
     color: var(--b3-theme-on-surface);
-    opacity: 0.9;
+    opacity: 0;
     pointer-events: none;
     user-select: none;
+    transition: opacity 130ms ease;
+}
+.HZ-search-list-hint--top {
+    top: 0;
+    background: linear-gradient(to bottom, var(--b3-menu-background) 0%, var(--b3-menu-background) 62%, transparent 100%);
+}
+.HZ-search-list-hint--bottom {
+    bottom: 0;
+    background: linear-gradient(to top, var(--b3-menu-background) 0%, var(--b3-menu-background) 62%, transparent 100%);
+}
+.HZ-search-list-hint--show {
+    opacity: 1;
 }
 
 /* 历史搜索记录 */
@@ -70,6 +85,7 @@
     overflow-x: hidden;
     /* 常显细滚动条, 提示内容可滚动 */
     scrollbar-width: thin;
+    scrollbar-gutter: stable;
     scrollbar-color: var(--b3-scroll-color, var(--b3-border-color)) transparent;
     /* 高亮匹配到的关键词 */
     .HZ-search-history-highlight {

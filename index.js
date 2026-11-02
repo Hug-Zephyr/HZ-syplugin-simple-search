@@ -4387,13 +4387,20 @@ class SimpleSearchHZ extends siyuan.Plugin {
         const prev_ele = this.get_search_input()?.parentElement.parentElement;
         prev_ele.insertAdjacentHTML('afterend', `
             <div id="simpleSearchSuggestionBox" class="HZ-search-suggestion-box b3-menu fn__none">
-                <div id="simpleSearchHistoryTopHint" class="HZ-search-list-hint HZ-search-list-hint--top fn__none" aria-hidden="true">↑ 还有 0 项</div>
+                <div id="simpleSearchHistoryTopHint" class="HZ-search-list-hint HZ-search-list-hint--top" aria-hidden="true">↑ 还有 0 项</div>
                 <ul id="simpleSearchHistoryList" class="HZ-search-history-list b3-list b3-list--background"></ul>
-                <div id="simpleSearchHistoryBottomHint" class="HZ-search-list-hint HZ-search-list-hint--bottom fn__none" aria-hidden="true">↓ 还有 0 项</div>
+                <div id="simpleSearchHistoryBottomHint" class="HZ-search-list-hint HZ-search-list-hint--bottom" aria-hidden="true">↓ 还有 0 项</div>
             </div>
         `);
         const history_ul = this.get_search_history_ul();
-        history_ul.addEventListener('scroll', () => this.update_list_hint(), { passive: true });
+        let hint_raf = 0;
+        history_ul.addEventListener('scroll', () => {
+            if (hint_raf) return;
+            hint_raf = requestAnimationFrame(() => {
+                hint_raf = 0;
+                this.update_list_hint();
+            });
+        }, { passive: true });
         history_ul.addEventListener('click', (event) => {
             const ele = event.target;
             if (this.suggestion_mode === 'command') {
@@ -4489,8 +4496,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // 先清掉旧值, 才能量出完整高度
         history_ul.style.maxHeight = '';
         const rect = input.getBoundingClientRect();
-        // 预留上下提示条的空间和容器边框, 避免提示出现时把列表顶出窗口
-        const avail_height = window.innerHeight - rect.bottom - 8 - 42;
+        // 提示条悬浮在列表上, 不再预留提示条高度
+        const avail_height = window.innerHeight - rect.bottom - 8;
         let limit_height = avail_height;
         if (row_limit > 0 && history_ul.children.length > row_limit) {
             const list_top = history_ul.getBoundingClientRect().top;
@@ -4504,7 +4511,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.update_list_hint();
     }
 
-    // 更新列表上下滚动提示: 未到顶显示上提示, 未到底显示下提示
+    // 更新列表上下滚动提示: 悬浮在列表边缘, 不参与布局
     update_list_hint() {
         const box = this.get_suggestion_box();
         const history_ul = this.get_search_history_ul();
@@ -4512,28 +4519,24 @@ class SimpleSearchHZ extends siyuan.Plugin {
         const bottom_hint = this.get_ele('#simpleSearchHistoryBottomHint');
         if (!box || !history_ul || !top_hint || !bottom_hint) return;
         if (box.classList.contains('fn__none')) {
-            top_hint.classList.add('fn__none');
-            bottom_hint.classList.add('fn__none');
+            top_hint.classList.remove('HZ-search-list-hint--show');
+            bottom_hint.classList.remove('HZ-search-list-hint--show');
             return;
         }
-        const max_scroll = history_ul.scrollHeight - history_ul.clientHeight;
-        const scrollable = max_scroll > 1;
-        const total = history_ul.children.length;
+        // 按实际列表项位置统计, 兼容不同行高
+        const list_rect = history_ul.getBoundingClientRect();
         let above = 0;
         let below = 0;
-        if (scrollable && total > 0) {
-            const row_h = history_ul.children[0].getBoundingClientRect().height;
-            if (row_h > 0) {
-                above = Math.max(0, Math.min(total, Math.ceil(history_ul.scrollTop / row_h)));
-                const visible_full = Math.floor((history_ul.scrollTop + history_ul.clientHeight) / row_h);
-                below = Math.max(0, Math.min(total, total - visible_full));
-            }
+        for (const item of history_ul.children) {
+            const item_rect = item.getBoundingClientRect();
+            if (item_rect.top < list_rect.top - 0.5) above++;
+            if (item_rect.bottom > list_rect.bottom + 0.5) below++;
         }
         top_hint.textContent = `↑ 还有 ${above} 项`;
         bottom_hint.textContent = `↓ 还有 ${below} 项`;
-        // 没有更多内容的一侧直接收起, 不占位
-        top_hint.classList.toggle('fn__none', !(scrollable && above > 0));
-        bottom_hint.classList.toggle('fn__none', !(scrollable && below > 0));
+        // 只切换透明度, 不改变布局, 避免列表跳动
+        top_hint.classList.toggle('HZ-search-list-hint--show', above > 0);
+        bottom_hint.classList.toggle('HZ-search-list-hint--show', below > 0);
     }
 
     // 更新搜索历史列表的显示
