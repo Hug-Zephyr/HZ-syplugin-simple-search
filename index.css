@@ -19,11 +19,26 @@
     overflow: hidden;
     box-sizing: border-box;
     padding: 0;
-    border-radius: var(--b3-border-radius-b);
+    border-radius: 0 0 var(--b3-border-radius-b) var(--b3-border-radius-b);
     border: 1px solid var(--b3-theme-surface-lighter);
     background-color: var(--b3-menu-background);
-    box-shadow: var(--b3-dialog-shadow);
+    box-shadow: 0 8px 20px -8px rgba(0, 0, 0, 0.25);
     font-size: var(--b3-font-size);
+}
+
+/* 列表打开时, 输入框临时显示外壳, 与列表拼成一个整体 */
+/* 用 inset box-shadow 画上/左/右三条边, 不加 bottom, 避免改变输入框高度和出现分隔线 */
+#searchInput.HZ-search-suggestion-open {
+    background-color: var(--b3-menu-background);
+    border: 0;
+    border-radius: var(--b3-border-radius-b) var(--b3-border-radius-b) 0 0;
+    box-shadow:
+        inset 0 1px 0 var(--b3-theme-surface-lighter),
+        inset 1px 0 0 var(--b3-theme-surface-lighter),
+        inset -1px 0 0 var(--b3-theme-surface-lighter);
+}
+#searchInput.HZ-search-suggestion-open:hover {
+    background-color: var(--b3-menu-background);
 }
 
 /* 列表上下滚动提示(容器内占位) */

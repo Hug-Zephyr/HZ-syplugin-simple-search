@@ -2790,6 +2790,11 @@ class SimpleSearchHZ extends siyuan.Plugin {
     get_suggestion_box() {
         return this.get_ele('#simpleSearchSuggestionBox');
     }
+    // 输入框与建议列表合并时, 给输入框加上外壳样式; 关闭后恢复原生透明输入框
+    set_suggestion_open(open) {
+        const input = this.get_search_input();
+        if (input) input.classList.toggle('HZ-search-suggestion-open', !!open);
+    }
     is_show_history_list() {
         return this.suggestion_mode === 'history' && !this.get_suggestion_box()?.classList.contains('fn__none');
     }
@@ -4044,6 +4049,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.command_completion = null;
         if (history_ul) history_ul.innerHTML = '';
         if (box) box.classList.add('fn__none');
+        this.set_suggestion_open(false);
         this.update_list_hint();
     }
     // 关闭搜索历史列表, 触发原生搜索事件
@@ -4199,7 +4205,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         const box = this.get_suggestion_box();
         if (!input || !box) return null;
         const rect = input.getBoundingClientRect();
-        box.style.left = `${rect.left+32}px`;
+        box.style.left = `${rect.left}px`;
         box.style.top = `${rect.bottom}px`;
         box.style.width = `${rect.width}px`;
         return rect;
@@ -4294,6 +4300,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             // tempMenu.addSeparator(1);
         }
         // 定位并显示
+        this.set_suggestion_open(true);
         this.position_suggestion_box();
         box.classList.remove('fn__none');
         this.suggestion_mode = 'history';
@@ -4383,6 +4390,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             const title = [c.label, c.name, c.hint].filter(Boolean).join(' ');
             history_ul.insertAdjacentHTML('beforeend', `<li class="HZ-search-command-li b3-list-item" data-index="${i}" title="${escapeHtml(title)}"><span class="b3-list-item__text"><span class="HZ-search-command-token">${escapeHtml(c.label)}</span>${name}${hint}</span></li>`);
         });
+        this.set_suggestion_open(true);
         this.position_suggestion_box();
         box.classList.remove('fn__none');
         this.select_command_item(result.default_index || 0);
@@ -5563,6 +5571,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
          '#simpleSearchHistoryTopHint', '#simpleSearchHistoryBottomHint'].forEach(sel => {
             document.querySelectorAll(sel).forEach(ele => ele.remove());
         });
+        document.querySelectorAll('#searchInput.HZ-search-suggestion-open')
+            .forEach(ele => ele.classList.remove('HZ-search-suggestion-open'));
         this.clear_highlight();
     }
     sy_event_init() {
