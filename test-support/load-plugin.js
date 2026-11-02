@@ -15,6 +15,7 @@ function load_plugin(options = {}) {
         search_translator,
         escapeHtml,
         unescapeHtml,
+        matchHistory,
         get_default_command_config,
         build_command_registry,
         validate_command_config,

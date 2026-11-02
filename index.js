@@ -2569,9 +2569,10 @@ function search_translator(arg) {
  * @param {string} input - 待匹配的输入字符串
  * @param {string[]} history - 历史记录数组（最多64个元素）
  * @param {boolean} is_all - 没有匹配的是否拼接在后面
+ * @param {boolean} prefix_only - 是否只保留精确/前缀匹配(过滤包含和模糊匹配)
  * @returns {string[]} 排序后的历史记录，匹配的在前（高亮），未匹配的按原顺序在后
  */
-function matchHistory(input, history, is_all=false) {
+function matchHistory(input, history, is_all=false, prefix_only=false) {
     /**
      * 计算模糊匹配分数
      * @param {string} input - 输入字符串（小写）
@@ -2711,9 +2712,10 @@ function matchHistory(input, history, is_all=false) {
     
     for (const record of cleanHistory) {
         const recordLower = record.toLowerCase();
+        const is_prefix_match = recordLower === inputLower || recordLower.startsWith(inputLower);
         const matchScore = _calculateMatchScore(inputLower, recordLower);
-        
-        if (matchScore > 0) {
+
+        if (matchScore > 0 && (!prefix_only || is_prefix_match)) {
             // 高亮匹配项
             const highlighted = _highlightMatch(record, inputTrimmed);
             matchedResults.push({ record: highlighted, score: matchScore, original: record });
@@ -2746,6 +2748,7 @@ function get_default_plugin_settings() {
         btn_show_help     : true,           // 搜索页顶部是否显示指令手册按钮
         btn_show_setting  : true,           // 搜索页顶部是否显示简搜设置按钮
         history_auto      : 'smart',        // 自动显示历史记录: close-关闭, smart-智能显示, always-总是显示
+        history_auto_prefix_only: false,    // 自动显示历史时是否只保留前缀匹配(过滤包含/模糊匹配)
         intercept_search  : true,           // 历史列表显示期间是否拦截(暂停)原生搜索
         replace_history   : true,           // 历史列表快捷键(Alt+↓)是否启用
         command_shortcut  : true,           // 指令补全快捷键(Tab)是否启用
@@ -3098,7 +3101,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             {id: 'about',      icon: 'ℹ️', name: '关于'},
         ];
         const row_switch = (key, title, desc) => `
-            <label class="fn__flex b3-label config-item">
+            <label class="fn__flex b3-label config-item" data-setting-row="${key}">
                 <div class="fn__flex-1">
                     <div class="config-name">${title}</div>
                     ${desc ? `<div class="b3-label__text">${desc}</div>` : ""}
@@ -3163,6 +3166,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                         {value: 'smart',  label: '智能显示'},
                         {value: 'always', label: '总是显示'},
                     ])}
+                    ${row_switch('history_auto_prefix_only', '自动历史仅前缀匹配', '开启后: 输入时自动弹出的历史记录只保留与输入前缀匹配的记录(精确匹配也属于前缀), 过滤包含匹配和模糊匹配<br>关闭后: 保留现有的包含/模糊匹配<br>手动 Alt+↓ 打开的历史不受影响; 自动显示关闭时此项不可用')}
                     ${row_switch('replace_history', '历史列表快捷键 (Alt+↓)', '开启后: Alt+↓ 显示/隐藏历史列表; 手动状态只在当前搜索页有效, 不会修改任何设置<br>关闭后: 不使用该快捷键')}
                     ${row_switch('intercept_search', '拦截搜索', '开启: 历史列表显示期间暂停搜索, 结果区保持上一次的结果<br>关闭: 历史列表只作为输入框下方的建议层, 搜索照常实时执行')}
                     ${row_number('history_rows_intercept', '历史记录行数上限(拦截开启)', '拦截搜索开启, 历史列表显示期间暂停搜索时, 最多显示的行数; 0 表示只按窗口高度限制')}
@@ -3715,6 +3719,18 @@ class SimpleSearchHZ extends siyuan.Plugin {
         const reset_all_btn = dialog.element.querySelector('#simpleSearchResetAll');
         const cancel_btn = dialog.element.querySelector('.b3-dialog__action .b3-button--cancel');
         const save_btn = dialog.element.querySelector('.b3-dialog__action .b3-button--text');
+        // “自动历史仅前缀匹配”依赖自动显示: 自动显示关闭时置灰
+        const history_auto_ele = dialog.element.querySelector('[data-key="history_auto"]');
+        const history_prefix_row = dialog.element.querySelector('[data-setting-row="history_auto_prefix_only"]');
+        const history_prefix_ele = history_prefix_row?.querySelector('[data-key="history_auto_prefix_only"]');
+        const update_history_prefix_only_disabled = () => {
+            if (!history_auto_ele || !history_prefix_ele) return;
+            const disabled = history_auto_ele.value === 'close';
+            history_prefix_ele.disabled = disabled;
+            history_prefix_row?.classList.toggle('ss-setting-row--disabled', disabled);
+        };
+        update_history_prefix_only_disabled();
+        history_auto_ele?.addEventListener('change', update_history_prefix_only_disabled);
         // 重置所有: 只重置表单, 点击保存后才真正生效
         let reset_all_pending = false;
         reset_all_btn?.addEventListener('click', () => {
@@ -3729,6 +3745,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 else if (ele.tagName === 'TEXTAREA') ele.value = Array.isArray(val) ? val.join(', ') : (val ?? '');
                 else ele.value = val ?? '';
             });
+            update_history_prefix_only_disabled();
             render_command_editor(JSON.parse(JSON.stringify(defaults.command_config)));
             if (completion_sort_ele) completion_sort_ele.value = defaults.completion_sort || 'config';
             render_completion_order(defaults.completion_order || [], defaults.completion_hidden || [], defaults.command_config);
@@ -4575,7 +4592,10 @@ class SimpleSearchHZ extends siyuan.Plugin {
             }
             // 根据输入的搜索内容, 过滤出符合条件的历史记录
             // 定时器用于防止短时间触发多次搜索事件
-            const history = matchHistory(input, SYT.get_search_history());
+            // 手动 Alt+↓ 打开的历史状态保持完整匹配, 不套用“仅前缀”过滤
+            const state = this.get_page_suggestion_state(inputElement);
+            const prefix_only = this.g_setting.history_auto_prefix_only && state?.history !== 'show';
+            const history = matchHistory(input, SYT.get_search_history(), false, prefix_only);
             this.history_timer_id = setTimeout(() => this.show_search_history_list(history), 200);
         };
         inputElement?.addEventListener('compositionend', (event) => {

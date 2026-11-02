@@ -165,6 +165,12 @@
 .simpleSearchSettingPanes .config-name {
     font-weight: 600;
 }
+.ss-setting-row--disabled {
+    opacity: 0.5;
+}
+.ss-setting-row--disabled .b3-switch {
+    cursor: not-allowed;
+}
 
 /* 指令配置编辑器 */
 .ss-cmd-head {
