@@ -171,6 +171,27 @@
 .ss-setting-row--disabled .b3-switch {
     cursor: not-allowed;
 }
+/* 已修改但尚未保存的设置项 */
+.ss-setting-row--modified {
+    position: relative;
+}
+.ss-setting-row--modified::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 6px;
+    bottom: 6px;
+    width: 3px;
+    border-radius: 2px;
+    background-color: var(--b3-theme-primary);
+    pointer-events: none;
+}
+/* 指令配置/自定义顺序的行更紧凑, 竖线上下少留一点, 避免显得太短 */
+.ss-cmd-item.ss-setting-row--modified::before,
+.ss-completion-order-row.ss-setting-row--modified::before {
+    top: 2px;
+    bottom: 2px;
+}
 
 /* 指令配置编辑器 */
 .ss-cmd-head {

@@ -3733,6 +3733,173 @@ class SimpleSearchHZ extends siyuan.Plugin {
         };
         update_history_prefix_only_disabled();
         history_auto_ele?.addEventListener('change', update_history_prefix_only_disabled);
+
+        // ---- 未保存修改: 检测和左侧标记 ----
+        let allow_close = false;
+        const hidden_setting_keys = new Set([
+            'command_config_json', 'completion_order_json', 'completion_hidden_json',
+        ]);
+        const get_control_value = (ele) => ele.type === 'checkbox' ? !!ele.checked : ele.value;
+        const get_setting_controls = () => [...dialog.element.querySelectorAll('[data-key]')]
+            .filter(ele => !hidden_setting_keys.has(ele.dataset.key));
+        const initial_control_values = new Map(
+            get_setting_controls().map(ele => [ele.dataset.key, get_control_value(ele)])
+        );
+        const get_command_config_obj = () => {
+            if (!editor_ele || !base_cfg) return null;
+            try {
+                return read_command_config_from_editor(editor_ele, base_cfg);
+            } catch (e) {
+                return null;
+            }
+        };
+        const initial_command_config_obj = get_command_config_obj();
+        const initial_command_config = initial_command_config_obj
+            ? JSON.stringify(initial_command_config_obj)
+            : (json_ele?.value || '');
+        const get_command_config_snapshot = () => {
+            const cfg = get_command_config_obj();
+            return cfg ? JSON.stringify(cfg) : '__invalid__';
+        };
+        const get_completion_order_snapshot = () => {
+            if (!completion_order_ele) return '[]';
+            const rows = [...completion_order_ele.querySelectorAll('.ss-completion-order-row')];
+            return JSON.stringify({
+                order: rows.map(row => row.dataset.orderKey),
+                hidden: rows.filter(row => {
+                    const sw = row.querySelector('.ss-completion-order-switch');
+                    return sw && !sw.checked;
+                }).map(row => row.dataset.orderKey),
+            });
+        };
+        const initial_completion_order = get_completion_order_snapshot();
+        const initial_completion_rows = completion_order_ele
+            ? [...completion_order_ele.querySelectorAll('.ss-completion-order-row')]
+            : [];
+        const initial_completion_keys = initial_completion_rows.map(row => row.dataset.orderKey);
+        const initial_completion_hidden = new Set(initial_completion_rows.filter(row => {
+            const sw = row.querySelector('.ss-completion-order-switch');
+            return sw && !sw.checked;
+        }).map(row => row.dataset.orderKey));
+        // 用最长公共子序列找出顺序发生变化的项, 避免把只是被迫位移的项也标出来
+        const get_order_changed_keys = (before, after) => {
+            const n = before.length;
+            const m = after.length;
+            const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+            for (let i = n - 1; i >= 0; i--) {
+                for (let j = m - 1; j >= 0; j--) {
+                    dp[i][j] = before[i] === after[j]
+                        ? dp[i + 1][j + 1] + 1
+                        : Math.max(dp[i + 1][j], dp[i][j + 1]);
+                }
+            }
+            const kept = new Set();
+            let i = 0;
+            let j = 0;
+            while (i < n && j < m) {
+                if (before[i] === after[j]) {
+                    kept.add(before[i]);
+                    i++;
+                    j++;
+                } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+                    i++;
+                } else {
+                    j++;
+                }
+            }
+            const changed = new Set();
+            before.forEach(key => { if (!kept.has(key)) changed.add(key); });
+            after.forEach(key => { if (!kept.has(key)) changed.add(key); });
+            return changed;
+        };
+        const is_dirty = () => {
+            if (get_setting_controls().some(ele =>
+                get_control_value(ele) !== initial_control_values.get(ele.dataset.key))) return true;
+            if (get_command_config_snapshot() !== initial_command_config) return true;
+            if (get_completion_order_snapshot() !== initial_completion_order) return true;
+            return false;
+        };
+        const update_command_modified_marks = () => {
+            const current = get_command_config_obj();
+            const head = dialog.element.querySelector('.ss-cmd-head');
+            const cat_nodes = [...dialog.element.querySelectorAll('.ss-cmd-cat')];
+            // 配置无法读取时退回到区块标题上的标记
+            if (!current || !initial_command_config_obj) {
+                head?.classList.toggle(
+                    'ss-setting-row--modified',
+                    get_command_config_snapshot() !== initial_command_config
+                );
+                dialog.element.querySelectorAll('.ss-cmd-item, .ss-cmd-cat').forEach(ele => {
+                    ele.classList.remove('ss-setting-row--modified');
+                });
+                return;
+            }
+            head?.classList.remove('ss-setting-row--modified');
+            const initial_cats = new Map((initial_command_config_obj.categories || []).map(c => [c.id, c]));
+            const current_cats = new Map((current.categories || []).map(c => [c.id, c]));
+            cat_nodes.forEach(cat_node => {
+                cat_node.classList.remove('ss-setting-row--modified');
+                const cat_id = cat_node.dataset.cat;
+                const initial_cat = initial_cats.get(cat_id);
+                const current_cat = current_cats.get(cat_id);
+                if (!initial_cat || !current_cat) return;
+                const initial_items = new Map((initial_cat.items || []).map(item => [item.id, JSON.stringify(item)]));
+                const current_items = new Map((current_cat.items || []).map(item => [item.id, JSON.stringify(item)]));
+                const initial_order = (initial_cat.items || []).map(item => item.id);
+                const current_order = (current_cat.items || []).map(item => item.id);
+                const moved_items = get_order_changed_keys(initial_order, current_order);
+                // 内容和排序的变化都具体标到对应的指令项上
+                cat_node.querySelectorAll('.ss-cmd-item').forEach(item_node => {
+                    const item_id = item_node.dataset.itemId;
+                    const changed = moved_items.has(item_id) ||
+                        !initial_items.has(item_id) ||
+                        initial_items.get(item_id) !== current_items.get(item_id);
+                    item_node.classList.toggle('ss-setting-row--modified', changed);
+                });
+            });
+        };
+        const update_completion_modified_marks = () => {
+            if (!completion_order_ele) return;
+            const rows = [...completion_order_ele.querySelectorAll('.ss-completion-order-row')];
+            const current_keys = rows.map(row => row.dataset.orderKey);
+            const moved_keys = get_order_changed_keys(initial_completion_keys, current_keys);
+            rows.forEach(row => {
+                const key = row.dataset.orderKey;
+                const sw = row.querySelector('.ss-completion-order-switch');
+                const hidden = !!(sw && !sw.checked);
+                const changed = moved_keys.has(key) ||
+                    initial_completion_hidden.has(key) !== hidden;
+                row.classList.toggle('ss-setting-row--modified', changed);
+            });
+            dialog.element.querySelector('.ss-completion-order-head')
+                ?.classList.remove('ss-setting-row--modified');
+        };
+        const update_dirty_marks = () => {
+            get_setting_controls().forEach(ele => {
+                const row = ele.closest('[data-setting-row], .config-item');
+                row?.classList.toggle(
+                    'ss-setting-row--modified',
+                    get_control_value(ele) !== initial_control_values.get(ele.dataset.key)
+                );
+            });
+            update_command_modified_marks();
+            update_completion_modified_marks();
+        };
+        let dirty_update_raf = 0;
+        const schedule_dirty_update = () => {
+            if (dirty_update_raf) return;
+            dirty_update_raf = requestAnimationFrame(() => {
+                dirty_update_raf = 0;
+                update_dirty_marks();
+            });
+        };
+        dialog.element.addEventListener('input', schedule_dirty_update);
+        dialog.element.addEventListener('change', schedule_dirty_update);
+        // 拖动排序等 DOM 变化不会触发 input/change, 用 MutationObserver 兜底
+        const dirty_observer = new MutationObserver(schedule_dirty_update);
+        dirty_observer.observe(dialog.element, { childList: true, subtree: true, characterData: true });
+        update_dirty_marks();
+
         // 重置所有: 确认后立即恢复默认并保存
         const reset_all_form = () => {
             const defaults = get_default_plugin_settings();
@@ -3749,6 +3916,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             render_command_editor(JSON.parse(JSON.stringify(defaults.command_config)));
             if (completion_sort_ele) completion_sort_ele.value = defaults.completion_sort || 'config';
             render_completion_order(defaults.completion_order || [], defaults.completion_hidden || [], defaults.command_config);
+            schedule_dirty_update();
         };
         const save_settings = (reset_all = false) => {
             // 把可视化编辑结果写回隐藏的 JSON 字段, 由 apply_setting_from_dialog 统一校验
@@ -3769,13 +3937,75 @@ class SimpleSearchHZ extends siyuan.Plugin {
         reset_all_btn?.addEventListener('click', () => {
             siyuan.confirm('重置所有设置', '确定要把所有设置恢复为默认值并立即保存吗？', () => {
                 reset_all_form();
-                if (save_settings(true)) dialog.destroy();
+                if (save_settings(true)) {
+                    allow_close = true;
+                    dialog.destroy();
+                }
             });
         });
         cancel_btn?.addEventListener('click', () => dialog.destroy());
         save_btn?.addEventListener('click', () => {
-            if (save_settings(false)) dialog.destroy();
+            if (save_settings(false)) {
+                allow_close = true;
+                dialog.destroy();
+            }
         });
+
+        // 有未保存修改时, 关闭设置面板前确认
+        let unsaved_prompt_open = false;
+        const show_unsaved_confirm = (on_save, on_discard) => {
+            if (unsaved_prompt_open) return;
+            unsaved_prompt_open = true;
+            const confirm_dialog = new siyuan.Dialog({
+                title: '设置尚未保存',
+                content: `<div class="b3-dialog__content">
+    <div class="ft__breakword">当前设置已修改，是否保存后再关闭？</div>
+</div>
+<div class="b3-dialog__action">
+    <button class="b3-button b3-button--cancel" data-unsaved-action="cancel">继续编辑</button>
+    <div class="fn__space"></div>
+    <button class="b3-button b3-button--outline" data-unsaved-action="discard">不保存</button>
+    <div class="fn__space"></div>
+    <button class="b3-button b3-button--text" data-unsaved-action="save">保存</button>
+</div>`,
+                width: '460px',
+                destroyCallback: () => { unsaved_prompt_open = false; },
+            });
+            confirm_dialog.element.addEventListener('click', (event) => {
+                const btn = event.target?.closest?.('[data-unsaved-action]');
+                if (!btn) return;
+                event.preventDefault();
+                event.stopPropagation();
+                const action = btn.dataset.unsavedAction;
+                confirm_dialog.destroy();
+                if (action === 'save') on_save();
+                else if (action === 'discard') on_discard();
+            });
+        };
+        const destroy_before_unsaved_prompt = dialog.destroy.bind(dialog);
+        dialog.destroy = () => {
+            if (!allow_close && is_dirty()) {
+                show_unsaved_confirm(
+                    () => {
+                        if (save_settings(false)) {
+                            allow_close = true;
+                            dialog.destroy();
+                        }
+                    },
+                    () => {
+                        allow_close = true;
+                        dialog.destroy();
+                    }
+                );
+                return;
+            }
+            if (dirty_update_raf) {
+                cancelAnimationFrame(dirty_update_raf);
+                dirty_update_raf = 0;
+            }
+            dirty_observer.disconnect();
+            destroy_before_unsaved_prompt();
+        };
     }
     // 保存设置面板中的修改
     // reset_all=true 时从默认值开始, 再套用表单里的值(表单未包含的隐藏项也恢复默认)
