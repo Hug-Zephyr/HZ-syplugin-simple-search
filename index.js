@@ -2756,6 +2756,7 @@ function get_default_plugin_settings() {
         completion_order  : [],             // 自定义补全顺序(补全形式 key 数组)
         completion_hidden : [],             // 自定义排序下隐藏的补全形式 key
         replace_search_res: true,           // 是否接管搜索结果
+        forbid_enter_create: true,          // 搜索结果为空时, 禁用回车创建新文档, 改为点击创建
         restree_style     : "native_tree",  // 文档树样式: 原生列表:native_list, 原生树:native_tree, 多彩:colorful, ediary
         sync_file         : true,           // 搜索结果的样式是否同步到文档树那里
         search_res_top    : true,           // 文档下的结果是否置顶
@@ -3219,6 +3220,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     <textarea data-key="command_config_json" style="display:none"></textarea>
                 </div>
                 <div class="simpleSearchSettingPane" data-pane="search">
+                    ${row_switch('forbid_enter_create', '搜索结果为空时禁用回车创建', '开启后: 搜索结果为空时, 回车不会创建新文档, 改为点击“点击创建”项创建<br>关闭后: 恢复思源原生回车创建新文档')}
                     ${row_switch('replace_search_res', '接管搜索结果', '开启后, 搜索结果将以新的样式进行显示(按文档分组时生效)')}
                     ${row_select('restree_style', '搜索结果样式', '选择搜索结果的显示风格, 全部风格都会按照文档路径名进行排序<br><a href="https://ld246.com/article/1759408628406" target="_blank">了解更多</a>', [
                         {value: 'native_list', label: '原生列表'},
@@ -5237,6 +5239,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         if (!g_setting.replace_search_res) return;
         // 搜索结果为空, 退出
         if (this.get_ele('[data-type="simple-search-new-disabled"]')) return;
+        // 原生新建文档项(未接管回车创建时), 也退出, 避免被当成文档路径渲染成树
+        if (this.get_ele('#searchList>[data-type="search-new"]')) return;
         // 不分组, 退出
         if (this.get_ele('#searchList>.b3-list-item[data-type="search-item"]')) return;
         // 没有结果, 也退出, 正常不会走到这个if里面
@@ -5269,7 +5273,9 @@ class SimpleSearchHZ extends siyuan.Plugin {
             // 搜到没有打标记的元素, 说明已经搜索结束, 直接给新元素打上标记
             ele.classList.add('simple-search-list-item');
             // 禁用回车创建文档
-            this.forbid_enter_create_file(ele);
+            if (this.g_setting.forbid_enter_create !== false) {
+                this.forbid_enter_create_file(ele);
+            }
             // 处理文档树显示
             this.show_search_res();
             this.is_searching = false;
