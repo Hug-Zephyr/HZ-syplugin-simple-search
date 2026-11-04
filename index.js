@@ -33,14 +33,20 @@ function mylog_warn(...args) { mylog_at('warn', ...args); }
 function mylog_error(...args) { mylog_at('error', ...args); }
 // 功能: 监听直到元素存在
 // 找到 selector 时，执行 func_cb，监听超时时间默认为 4s
+// is_cancelled: 每帧检查, 返回 true 时立即放弃轮询(用于新搜索作废旧搜索)
 // selector: string | #id | function
-function whenExist(selector, func_cb, time_out = 4000) {
+function whenExist(selector, func_cb, time_out = 4000, is_cancelled = null) {
     mylog("whenExist begin", selector);
 
     return new Promise((resolve) => {
         const startTime = Date.now(); // 记录开始时间
 
         const checkForElement = () => {
+            // 有更新的搜索时, 旧的轮询直接作废, 避免多个 rAF 循环叠加
+            if (is_cancelled && is_cancelled()) {
+                resolve(false);
+                return;
+            }
             let element = null;
 
             // 根据selector类型进行查找
@@ -4814,6 +4820,24 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.command_index = 0;
     }
 
+    // 按输入内容计算历史候选并延迟显示(连续输入时只保留最后一次)
+    schedule_search_history(value, inputElement = this.get_search_input()) {
+        clearTimeout(this.history_timer_id);
+        // 空输入不显示历史; 拦截模式下补一次搜索, 让结果区清空
+        if (!value) {
+            if (this.g_setting.intercept_search) this.search_history_dispatch_input();
+            else this.hidden_search_history_list();
+            return;
+        }
+        // 根据输入的搜索内容, 过滤出符合条件的历史记录
+        // 定时器用于防止短时间触发多次搜索事件
+        // 手动 Alt+↓ 打开的历史状态保持完整匹配, 不套用“仅前缀”过滤
+        const state = this.get_page_suggestion_state(inputElement);
+        const prefix_only = this.g_setting.history_auto_prefix_only && state?.history !== 'show';
+        const history = matchHistory(value, SYT.get_search_history(), false, prefix_only);
+        this.history_timer_id = setTimeout(() => this.show_search_history_list(history), 200);
+    }
+
     // 接管搜索历史
     handle_search_history() {
         //嵌入搜索历史列表
@@ -4823,22 +4847,6 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // input事件触发搜索历史列表
         // 中文触发顺序: start -> input -> input -> end
         // 英文触发顺序: input
-        const schedule_history_list = (input) => {
-            clearTimeout(this.history_timer_id);
-            // 空输入不显示历史; 拦截模式下补一次搜索, 让结果区清空
-            if (!input) {
-                if (this.g_setting.intercept_search) this.search_history_dispatch_input();
-                else this.hidden_search_history_list();
-                return;
-            }
-            // 根据输入的搜索内容, 过滤出符合条件的历史记录
-            // 定时器用于防止短时间触发多次搜索事件
-            // 手动 Alt+↓ 打开的历史状态保持完整匹配, 不套用“仅前缀”过滤
-            const state = this.get_page_suggestion_state(inputElement);
-            const prefix_only = this.g_setting.history_auto_prefix_only && state?.history !== 'show';
-            const history = matchHistory(input, SYT.get_search_history(), false, prefix_only);
-            this.history_timer_id = setTimeout(() => this.show_search_history_list(history), 200);
-        };
         inputElement?.addEventListener('compositionend', (event) => {
             // 指令补全独立于历史模式, 命中时暂停搜索
             if (this.update_command_completion(inputElement.value, inputElement.selectionStart, inputElement)) {
@@ -4850,7 +4858,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 // 不拦截搜索: 交给原生处理, 这里只刷新历史建议
                 this.history_typed_value = inputElement.value;
                 this.history_previewing = false;
-                schedule_history_list(inputElement.value);
+                this.schedule_search_history(inputElement.value, inputElement);
                 return;
             }
             // 因为思源原生也会监听compositionend事件, 然后触发与原生input一样的逻辑
@@ -4901,7 +4909,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 return;
             }
             if (intercept && this.is_searching) {
-                // console.log('上次触发的搜索还没有结束, 不处理这次的input, 走思源原生input逻辑');
+                // 搜索期间不弹历史; 记下这次输入, 搜索结束后补算一次
+                this._history_suppressed_value = inputElement.value;
                 return;
             }
             if (event.isComposing) {
@@ -4917,7 +4926,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 event.stopPropagation();
             }
             // console.log('搜索历史处理input');
-            schedule_history_list(event.target.value);
+            this.schedule_search_history(event.target.value, inputElement);
         }, true);
 
         inputElement?.addEventListener('mousedown', () => {
@@ -5501,11 +5510,27 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // 处理监听事件
         this.res_tree_event_listern(new_tree_list);
     }
+    // 一次搜索等待结束(找到结果或超时): 复位状态, 并补算搜索期间被丢弃的历史输入
+    finish_search_wait() {
+        this.is_searching = false;
+        const value = this._history_suppressed_value;
+        this._history_suppressed_value = undefined;
+        if (typeof value !== 'string') return;
+        const input = this.get_search_input();
+        // 输入在结束后又变了, 交给后续 input 自己处理
+        if (!input || input.value !== value) return;
+        if (this.get_history_auto_mode(input) === 'close') return;
+        // 指令补全列表正在显示时, 不抢建议列表
+        if (this.is_show_command_list()) return;
+        this.schedule_search_history(value, input);
+    }
     // 搜索结束后触发
     search_completed_callback(){
         // 这里利用了一个特性, 搜索事件触发之后, search_list会重置为新的元素
         // 所以可以通过给第一个孩子打标记来判断搜索结束
         // 一直等到 新的元素(第一个孩子没有标记) 出现后, 触发
+        // 每次搜索递增代际, 让上一次的轮询自动作废, 避免快速输入时叠加多个轮询
+        const wait_id = this._search_wait_id = (this._search_wait_id || 0) + 1;
         whenExist(function() {
             return this.get_ele(`#searchList>:first-child:not(.simple-search-list-item)`);
         }.bind(this), function(ele) {
@@ -5517,8 +5542,14 @@ class SimpleSearchHZ extends siyuan.Plugin {
             }
             // 处理文档树显示
             this.show_search_res();
-            this.is_searching = false;
-        }.bind(this));
+            this.finish_search_wait();
+        }.bind(this), 4000, () => wait_id !== this._search_wait_id).then((found) => {
+            // 超时没等到结果: 回调不会执行, 这里补一次复位, 否则历史记录自动显示会一直停摆;
+            // 被新搜索取消时 wait_id 已经变化, 不能动新搜索的 is_searching
+            if (!found && wait_id === this._search_wait_id) {
+                this.finish_search_wait();
+            }
+        });
     }
     // 搜索事件触发
     inputSearchEvent(data) {
@@ -5901,6 +5932,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.history_previewing  = false; // 输入框内容是否由历史项预览写入
         this.history_timer_id    = 0;     // 历史列表延迟显示的定时器
         this.suggestion_mode     = null;  // 建议列表模式: history / command
+        this._history_suppressed_value = undefined; // 搜索期间被丢弃、待结束后补算的历史输入
+        this._search_wait_id     = 0;     // 搜索结束等待的代际, 用于取消旧轮询
         this.command_completion  = null;  // 当前指令补全的结果
         this.command_index       = 0;     // 指令补全当前高亮项
 
