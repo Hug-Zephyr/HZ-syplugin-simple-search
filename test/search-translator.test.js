@@ -200,6 +200,23 @@ test('时间过滤: 单条件和 and/or', () => {
     assert.match(combo.val, /created>'20250000000000' and updated<'20260000000000'/);
 });
 
+test('时间过滤: 不是合法时间表达式时退化为关键词', () => {
+    for (const word of ['ctrl', 'utf-8', 'utter', 'ctf', 'ct', 'ct>abc', 'ct=abc', 'ut=']) {
+        const r = parse(word);
+        assert.equal(r.type, '-w');
+        assert.deepEqual(r.keywords, [word]);
+        assert.deepEqual(r.help.errors, []);
+        assert.equal(r.val, word);
+    }
+    // 有关键词时, 普通单词也不会被吞掉
+    const combo = parse('ctrl 历史');
+    assert.deepEqual(combo.keywords, ['ctrl', '历史']);
+    assert.deepEqual(combo.help.errors, []);
+    // 合法表达式仍然按时间过滤; ct< 单独出现仍是排序指令
+    assert.equal(parse('ct>2025').help.custom_time.length, 1);
+    assert.equal(parse('ct<').help.sort, '创建时间升序(指定)');
+});
+
 test('分组: g< / nog<', () => {
     const grouped = parse('g<');
     assert.equal(grouped.help.group_desc, '按文档分组(指定)');
@@ -380,10 +397,11 @@ test('时间: = 表示前缀匹配', () => {
     assert.match(r.val, /created like '20251001%'/);
 });
 
-test('时间: 非法格式给出提示', () => {
+test('时间: 裸前缀非法格式退化为关键词, kv 形式仍提示', () => {
     const bad = parse('ct>abc');
     assert.equal(bad.type, '-w');
-    assert.deepEqual(bad.help.errors, ['时间格式错误: ct>abc']);
+    assert.deepEqual(bad.keywords, ['ct>abc']);
+    assert.deepEqual(bad.help.errors, []);
 
     const bad_kv = parse('--time=xx>2025');
     assert.deepEqual(bad_kv.help.errors, ['未识别的值: xx>2025']);

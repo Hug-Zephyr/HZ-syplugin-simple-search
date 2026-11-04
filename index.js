@@ -1721,8 +1721,12 @@ function search_translator(arg) {
         }
         return {type, val, keywords, help};
     }
+    // 只校验时间表达式格式, 不产生副作用(用于判断 ct/ut 前缀是否算指令)
+    const _is_valid_time = function(str) {
+        return /^[cu]t[>=<][0-9]{1,14}([&|][cu]t[>=<][0-9]{1,14})*$/.test(str);
+    };
     const _parse_time = function(str) {
-        if (!str.match(/^[cu]t[>=<][0-9]{1,14}([&|][cu]t[>=<][0-9]{1,14})*$/g)) return false;
+        if (!_is_valid_time(str)) return false;
         let time_sql = str.replace(/&/g, ' and ').replace(/\|/g, ' or ')
             .replace(/ct/g, 'created').replace(/ut/g, 'updated')
             .replace(/([<>])(\d+)/g, (t, p1, p2) => `${p1}'${p2.padEnd(14, '0')}'`)
@@ -1966,7 +1970,12 @@ function search_translator(arg) {
             if (token.startsWith(p.token) && /^[1-6]*$/.test(token.slice(p.token.length))) return true;
         }
         for (const [key] of reg.kv_groups) if (token.startsWith(key)) return true;
-        for (const p of reg.multi_prefix) if (token.startsWith(p.token)) return true;
+        for (const p of reg.multi_prefix) {
+            if (!token.startsWith(p.token)) continue;
+            // 时间必须是完整合法表达式, 普通单词/错误格式不算已注册指令
+            if (p.item.kind === 'time' && !_is_valid_time(p.item.field + token.slice(p.token.length))) continue;
+            return true;
+        }
         return !!_parse_single_combo(token);
     };
     // 判断 token 是否命中了被单项开关关闭的指令
@@ -1979,8 +1988,8 @@ function search_translator(arg) {
             if (!token.startsWith(p.token)) continue;
             const rest = token.slice(p.token.length);
             if (!rest) continue;
-            // 时间要带比较符, 避免把 ctf 这类普通词误判成关闭的 ct
-            if (p.item.kind === 'time' && !/^[>=<]/.test(rest)) continue;
+            // 时间要带比较符且格式合法, 避免把 ctf、ct>abc 这类输入误判成关闭的 ct
+            if (p.item.kind === 'time' && !_is_valid_time(p.item.field + rest)) continue;
             // 标题多字符形式后面只允许级别数字
             if (p.heading && !/^[1-6]+$/.test(rest)) continue;
             return { names: [name_of(p.item)] };
@@ -2040,8 +2049,12 @@ function search_translator(arg) {
             }
         }
         for (const p of reg.multi_prefix) {
-            if (token.startsWith(p.token) && (!best || p.token.length > best.len)) {
-                best = { kind: 'prefix', hit: { cat: p.cat, item: p.item }, payload: token.slice(p.token.length), len: p.token.length };
+            if (!token.startsWith(p.token)) continue;
+            const rest = token.slice(p.token.length);
+            // 时间必须是完整合法表达式, 否则(ctrl、ct>abc 等)当普通关键词处理
+            if (p.item.kind === 'time' && !_is_valid_time(p.item.field + rest)) continue;
+            if (!best || p.token.length > best.len) {
+                best = { kind: 'prefix', hit: { cat: p.cat, item: p.item }, payload: rest, len: p.token.length };
             }
         }
         if (best) {
