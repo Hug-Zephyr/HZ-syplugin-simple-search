@@ -217,6 +217,32 @@ test('时间过滤: 不是合法时间表达式时退化为关键词', () => {
     assert.equal(parse('ct<').help.sort, '创建时间升序(指定)');
 });
 
+test('识别摘要: 只记录被消费的指令 token', () => {
+    // 没有识别到指令时不记录
+    assert.deepEqual(parse('历史').help.recognized, []);
+    assert.deepEqual(parse('ctrl').help.recognized, []);
+
+    // 原样展示, 保持输入顺序, 并提供悬浮说明
+    const r = parse('历史 -dhcp !草稿');
+    assert.deepEqual(r.help.recognized, [
+        { token: '-dhcp', desc: '文档块、标题块、代码块、段落块' },
+        { token: '!草稿', desc: '排除关键词' },
+    ]);
+
+    // 重复 token 只保留第一次
+    const dedupe = parse('-d -d /a ct>2025');
+    assert.deepEqual(dedupe.help.recognized.map(item => item.token), ['-d', '/a', 'ct>2025']);
+    assert.equal(dedupe.help.recognized[2].desc, '创建时间 >2025');
+
+    // 粘连模式只显示被识别的模式部分
+    const mode = parse('-sselect * from blocks');
+    assert.deepEqual(mode.help.recognized, [{ token: '-s', desc: 'SQL' }]);
+
+    // 标题级别、kv 形式
+    assert.equal(parse('-h13 历史').help.recognized[0].desc, '标题块（1,3级）');
+    assert.equal(parse('--sort=ct:asc').help.recognized[0].desc, '创建时间升序');
+});
+
 test('分组: g< / nog<', () => {
     const grouped = parse('g<');
     assert.equal(grouped.help.group_desc, '按文档分组(指定)');

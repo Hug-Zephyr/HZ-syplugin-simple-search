@@ -1632,7 +1632,14 @@ function search_translator(arg) {
         sort        : "默认",
         group_desc  : "",
         errors      : [],
+        recognized  : [],   // 被插件识别的指令 token, 用于顶部摘要
     }
+    // 记录一个被识别的指令 token(同 token 只保留第一次)
+    const _add_recognized = function(token, desc) {
+        if (!token) return;
+        if (help.recognized.some(item => item.token === token)) return;
+        help.recognized.push({ token, desc: desc || '' });
+    };
 
     // 指令配置与解析索引
     const reg = build_command_registry(arg.command_config);
@@ -2026,11 +2033,46 @@ function search_translator(arg) {
         }
         return null;
     };
+    // 顶部摘要用的 token 说明
+    const _describe_kv = function(group, payload, key) {
+        const names = [];
+        const add_name = (name) => { if (name && !names.includes(name)) names.push(name); };
+        // 时间: --time=ct>2025&ut<2026
+        const time_entry = group.find(e => e.item.kind === 'time' && e.value && payload.startsWith(e.value));
+        if (time_entry) {
+            add_name(`${time_entry.item.name}${payload.slice(time_entry.value.length)}`);
+        } else {
+            for (const part of String(payload || '').split(',')) {
+                const value = part.trim();
+                if (!value) continue;
+                const entry = group.find(e => e.value === value);
+                add_name(entry ? entry.item.name : value);
+            }
+        }
+        return names.length ? names.join('、') : key;
+    };
+    const _describe_prefix = function(item, payload) {
+        if (item.kind === 'time' && payload) return `${item.name} ${payload}`;
+        return item.name || '';
+    };
+    const _describe_single_combo = function(actions) {
+        const names = [];
+        for (const action of actions) {
+            let name = action.hit.item.name || '';
+            if (action.hit.item.kind === 'heading' && action.payload) {
+                name += `（${[...new Set(action.payload.split(''))].join(',')}级）`;
+            }
+            if (name && !names.includes(name)) names.push(name);
+        }
+        return names.join('、');
+    };
     // 解析单个 token
     const _parse_command_token = function(token) {
         // 1. 完整多字符指令
         if (reg.multi_exact.has(token)) {
-            _apply_item(reg.multi_exact.get(token), '');
+            const hit = reg.multi_exact.get(token);
+            _add_recognized(token, hit.item.name);
+            _apply_item(hit, '');
             return true;
         }
         // 2. 标题的多字符形式: 末尾可以带级别数字 1-6
@@ -2038,6 +2080,8 @@ function search_translator(arg) {
             if (!token.startsWith(p.token)) continue;
             const rest = token.slice(p.token.length);
             if (!/^[1-6]*$/.test(rest)) continue;
+            const levels = rest ? [...new Set(rest.split(''))].join(',') : '';
+            _add_recognized(token, p.item.name + (levels ? `（${levels}级）` : ''));
             _apply_item({ cat: p.cat, item: p.item }, rest);
             return true;
         }
@@ -2058,13 +2102,19 @@ function search_translator(arg) {
             }
         }
         if (best) {
-            if (best.kind === 'kv') _apply_kv(best.group, best.payload, best.key);
-            else _apply_item(best.hit, best.payload);
+            if (best.kind === 'kv') {
+                _add_recognized(token, _describe_kv(best.group, best.payload, best.key));
+                _apply_kv(best.group, best.payload, best.key);
+            } else {
+                _add_recognized(token, _describe_prefix(best.hit.item, best.payload));
+                _apply_item(best.hit, best.payload);
+            }
             return true;
         }
         // 3. 单字符组合
         const actions = _parse_single_combo(token);
         if (actions) {
+            _add_recognized(token, _describe_single_combo(actions));
             actions.forEach(a => _apply_item(a.hit, a.payload));
             return true;
         }
@@ -2078,13 +2128,13 @@ function search_translator(arg) {
         for (const md of reg.modes) {
             if (md.token && first === md.token) {
                 const rest = tokens.slice(1).join(' ');
-                return { mode: md.item.mode, query: rest.trim() };
+                return { mode: md.item.mode, query: rest.trim(), token: first, desc: md.item.name };
             }
             if (md.key && first.startsWith(md.key)) {
                 const val = first.slice(md.key.length);
                 if (!md.value || val === md.value) {
                     const rest = tokens.slice(1).join(' ');
-                    return { mode: md.item.mode, query: rest.trim() };
+                    return { mode: md.item.mode, query: rest.trim(), token: first, desc: md.item.name };
                 }
             }
         }
@@ -2094,25 +2144,26 @@ function search_translator(arg) {
                 if (md.single && first.startsWith('-' + md.single)) {
                     const query = first.slice(md.single.length + 1) +
                         (tokens.length > 1 ? ' ' + tokens.slice(1).join(' ') : '');
-                    return { mode: md.item.mode, query: query.trim() };
+                    // 摘要里只显示被识别的模式部分, 不显示粘连的查询内容
+                    return { mode: md.item.mode, query: query.trim(), token: '-' + md.single, desc: md.item.name };
                 }
             }
         }
         // 其他位置: 独立的单字符模式, 或多字符/kv 模式
-        let hit = null, idx = -1;
+        let hit = null, idx = -1, hit_token = '';
         for (let i = 0; i < tokens.length; i++) {
             for (const md of reg.modes) {
-                if (md.single && tokens[i] === '-' + md.single) { hit = md; idx = i; }
-                else if (md.token && tokens[i] === md.token) { hit = md; idx = i; }
+                if (md.single && tokens[i] === '-' + md.single) { hit = md; idx = i; hit_token = tokens[i]; }
+                else if (md.token && tokens[i] === md.token) { hit = md; idx = i; hit_token = tokens[i]; }
                 else if (md.key && tokens[i].startsWith(md.key)) {
                     const val = tokens[i].slice(md.key.length);
-                    if (!md.value || val === md.value) { hit = md; idx = i; }
+                    if (!md.value || val === md.value) { hit = md; idx = i; hit_token = tokens[i]; }
                 }
             }
         }
         if (hit) {
             const rest = tokens.slice(0, idx).concat(tokens.slice(idx + 1)).join(' ');
-            return { mode: hit.item.mode, query: rest.trim() };
+            return { mode: hit.item.mode, query: rest.trim(), token: hit_token, desc: hit.item.name };
         }
         return null;
     };
@@ -2569,6 +2620,7 @@ function search_translator(arg) {
     }
     const mode_hit = _scan_mode();
     if (mode_hit) {
+        _add_recognized(mode_hit.token, mode_hit.desc);
         return _handle_ret(mode_hit.mode + mode_hit.query);
     }
     if (input.length < 2) {
@@ -2764,6 +2816,7 @@ function get_default_plugin_settings() {
         plugin_enabled    : true,           // 插件总开关
         log_level         : 'info',         // 日志等级: off/error/warn/info/debug
         assist_sw         : true,           // 辅助信息显示框 是否显示
+        show_recognized   : true,           // 搜索页顶部是否显示“简搜已识别”摘要
         btn_show_help     : true,           // 搜索页顶部是否显示指令手册按钮
         btn_show_setting  : true,           // 搜索页顶部是否显示简搜设置按钮
         history_auto      : 'smart',        // 自动显示历史记录: close-关闭, smart-智能显示, always-总是显示
@@ -3179,6 +3232,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     ${row_textarea('ignored_inputs', '阻止搜索的特殊输入', '当输入框内容完全匹配以下任一值时, 阻止搜索(多个值用英文逗号分隔)', (g_setting.ignored_inputs || []).join(", "))}
                     ${row_switch('btn_show_help', '显示“指令手册”按钮', '辅助区域显示时, 在搜索页顶部显示帮助按钮, 点击后在辅助信息框里查看指令速查手册')}
                     ${row_switch('btn_show_setting', '显示“简搜设置”按钮', '辅助区域显示时, 在搜索页顶部“指令手册”按钮的左侧显示设置按钮')}
+                    ${row_switch('show_recognized', '显示“简搜已识别”摘要', '在搜索页顶部工具栏显示被插件识别并消费的指令 token, 悬浮可查看含义; 关闭后不显示')}
                 </div>
                 <div class="simpleSearchSettingPane" data-pane="history">
                     ${row_select('history_auto', '自动显示历史记录', '输入内容时自动显示匹配到的历史记录<br>关闭: 不自动显示, 需要时用 alt+↓ 手动调出<br>智能显示: 存在可用的历史候选时显示(与输入完全相同的项不计入)<br>总是显示: 只要输入不为空就显示, 首行为当前输入', [
@@ -4086,6 +4140,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         }
         // 按钮显示设置立即生效(搜索页已打开时)
         this.update_assist_btn_visibility();
+        // 识别摘要显示设置立即生效
+        this.update_recognized_summary();
         // 搜索面板不一定打开
         if (this.get_search_list()) this.show_search_res();
         return true;
@@ -4308,6 +4364,35 @@ class SimpleSearchHZ extends siyuan.Plugin {
             this.get_ele(space_sel)?.classList.toggle('fn__none', !show);
             this.get_ele(btn_sel)?.classList.toggle('fn__none', !show);
         });
+    }
+    // 顶部工具栏的识别摘要, 只显示被插件消费掉的指令 token
+    insert_recognized_summary() {
+        const result = this.get_ele('#searchResult');
+        if (!result || this.get_ele('#simpleSearchRecognized')) return;
+        result.insertAdjacentHTML('afterend', `
+            <span class="fn__space" id="simpleSearchRecognizedSpace"></span>
+            <span id="simpleSearchRecognized" class="HZ-search-recognized fn__none" aria-label=""></span>
+        `);
+    }
+    update_recognized_summary() {
+        const ele = this.get_ele('#simpleSearchRecognized');
+        const space = this.get_ele('#simpleSearchRecognizedSpace');
+        if (!ele) return;
+        const list = this.query?.help?.recognized || [];
+        if (this.g_setting.show_recognized === false || !list.length) {
+            ele.classList.add('fn__none');
+            space?.classList.add('fn__none');
+            ele.innerHTML = '';
+            ele.removeAttribute('aria-label');
+            return;
+        }
+        ele.innerHTML = '<span class="HZ-search-recognized-label">简搜已识别:</span>' +
+            list.map(item =>
+                `<span class="HZ-search-recognized-token" title="${escapeHtml(item.desc || '')}">${escapeHtml(item.token)}</span>`
+            ).join('');
+        ele.setAttribute('aria-label', `简搜已识别: ${list.map(item => item.token).join(' ')}`);
+        ele.classList.remove('fn__none');
+        space?.classList.remove('fn__none');
     }
     // 嵌入 辅助区域
     handle_assist_area() {
@@ -5131,6 +5216,9 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // 在搜索页面嵌入: 快捷操作区域
         this.handle_assist_area();
 
+        // 顶部工具栏: 识别摘要
+        this.insert_recognized_summary();
+
         // 接管搜索历史
         this.handle_search_history();
 
@@ -5575,13 +5663,15 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // 2.1 替换原有搜索条件
         this.replace_src_search(data.detail.config);
         mylog("替换后参数", data.detail.config);
+        // 2.2 顶部识别摘要
+        this.update_recognized_summary();
         // 输入被"阻止搜索的特殊输入"拦截时, 不会有正常的搜索完成回调,
         // 这里直接复位, 避免 is_searching 一直为 true 导致后续历史记录不自动显示
         if (this.query?.blocked) {
             this.is_searching = false;
             return;
         }
-        // 2.2 显示解析结果
+        // 2.3 显示解析结果
         this.update_analysis_result();
         // 3. 搜索结束后触发
         this.search_completed_callback();
@@ -5876,6 +5966,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         ['#simpleSearchShowSw',
          '#simpleSearchDisplayTreeSetting', '#simpleSearchSettingSpace',
          '#simpleSearchHelp', '#simpleSearchHelpSpace',
+         '#simpleSearchRecognized', '#simpleSearchRecognizedSpace',
          '#simpleSearchAssistArea', '#simpleSearchSuggestionBox', '#simpleSearchHistoryList',
          '#simpleSearchHistoryTopHint', '#simpleSearchHistoryBottomHint'].forEach(sel => {
             document.querySelectorAll(sel).forEach(ele => ele.remove());

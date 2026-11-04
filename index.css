@@ -125,6 +125,39 @@
     background: transparent;
 }
 
+/* 顶部工具栏: 简搜识别摘要 */
+.HZ-search-recognized {
+    display: inline-flex;
+    align-items: center;
+    align-self: center;
+    vertical-align: middle;
+    gap: 0;
+    height: 100%;
+    min-width: 0;
+    max-width: 40vw;
+    overflow: hidden;
+    white-space: nowrap;
+    font-size: 14px;
+    color: var(--b3-theme-on-surface);
+    opacity: 0.7;
+    user-select: none;
+}
+.HZ-search-recognized-label {
+    flex: 0 0 auto;
+}
+.HZ-search-recognized-token {
+    display: inline-flex;
+    align-items: center;
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    padding: 0 2px;
+    border-radius: 4px;
+    background: var(--b3-theme-surface);
+    font-family: var(--b3-font-family-code);
+    text-overflow: ellipsis;
+}
+
 /* 辅助信息显示区域 */
 #simpleSearchAssistArea {
     padding: 0 5px;
