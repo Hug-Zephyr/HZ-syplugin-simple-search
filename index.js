@@ -4170,6 +4170,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
     inseart_assist_area() {
         // 1. 信息显示框, 一定插入, 通过开关控制是否显示
         const criteria = this.get_ele('#criteria');
+        // 思源调整搜索页结构时, 缺少挂载点就跳过辅助区域, 不能影响后续搜索
+        if (!criteria) return;
         const is_show = this.g_setting.assist_sw ? "contents" : "none";
         // 适配浅吟主题的搜索框上移
         const order = window.getComputedStyle(criteria).order;
@@ -4305,6 +4307,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
     // 嵌入 开关按钮, 帮助按钮
     insert_assist_btn() {
         const icon_parent = this.get_ele('.search__header>.block__icons');
+        // 找不到工具栏就跳过按钮, 不能影响后续搜索
+        if (!icon_parent) return;
         // 1. 增加开关按钮
         // 关 -> 开
         const enable_sw = {
@@ -4326,9 +4330,11 @@ class SimpleSearchHZ extends siyuan.Plugin {
             </span>
         `);
         const sw_ele = icon_parent.querySelector('#simpleSearchShowSw');
-        const use_ele = sw_ele.querySelector('svg>use')
+        const use_ele = sw_ele?.querySelector('svg>use')
         const assist_area = this.get_ele('#simpleSearchAssistArea')
-        sw_ele.addEventListener('click', () => {
+        sw_ele?.addEventListener('click', () => {
+            // 辅助区域缺失时按钮不应存在, 这里再兜底一次
+            if (!assist_area) return;
             // 根据图标更新当前状态
             this.g_setting.assist_sw = assist_area.style.display != "none";
             // 点击说明要切换开关
@@ -4337,7 +4343,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             // 按照新的开关, 重新设置样式
             const sw = this.g_setting.assist_sw ? disable_sw : enable_sw;
             sw_ele.setAttribute('aria-label', sw.label);
-            use_ele.setAttribute('xlink:href', sw.icon);
+            use_ele?.setAttribute('xlink:href', sw.icon);
             assist_area.style.display = sw.display;
             // 辅助区域隐藏时, 设置/指令手册按钮一起隐藏
             this.update_assist_btn_visibility();
@@ -4365,10 +4371,11 @@ class SimpleSearchHZ extends siyuan.Plugin {
         `);
         const help_ele = this.get_ele('#simpleSearchHelp');
         const text_area = this.get_ele('#simpleSearchTextarea')
-        help_ele.addEventListener('click', () => {
+        help_ele?.addEventListener('click', () => {
+            if (!text_area) return;
             text_area.innerHTML = this.get_help_info_html();
             if (!this.g_setting.assist_sw) {
-                sw_ele.click();
+                sw_ele?.click();
             }
         });
 
@@ -4508,7 +4515,9 @@ class SimpleSearchHZ extends siyuan.Plugin {
     }
     // 插入搜索历史列表所在的元素
     insert_search_history_list() {
-        const prev_ele = this.get_search_input()?.parentElement.parentElement;
+        const prev_ele = this.get_search_input()?.parentElement?.parentElement;
+        // 搜索框结构变化时跳过历史列表, 不能影响后续搜索
+        if (!prev_ele) return;
         prev_ele.insertAdjacentHTML('afterend', `
             <div id="simpleSearchSuggestionBox" class="HZ-search-suggestion-box b3-menu fn__none">
                 <div id="simpleSearchHistoryTopHint" class="HZ-search-list-hint HZ-search-list-hint--top" aria-hidden="true">↑ 还有 0 项</div>
@@ -4517,6 +4526,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             </div>
         `);
         const history_ul = this.get_search_history_ul();
+        if (!history_ul) return;
         let hint_raf = 0;
         history_ul.addEventListener('scroll', () => {
             if (hint_raf) return;
@@ -5245,19 +5255,29 @@ class SimpleSearchHZ extends siyuan.Plugin {
     }
     // 对于当前这个搜索页面来说 第一次打开搜索页面
     handle_open_search_page(detail) {
+        // 页面引用已失效(搜索页已关闭/重建)时直接跳过
+        if (!this.page) return;
         // 打上标记
         if (this.page.classList.contains('HZ-simple-search-page')) return;
         mylog_info('第一次打开搜索页面');
         this.page.classList.add('HZ-simple-search-page');
 
+        // 各步骤相互隔离: 某个界面插入失败时, 其余功能和搜索本身仍要正常
+        const run_step = (name, fn) => {
+            try {
+                fn();
+            } catch (e) {
+                mylog_error(`搜索页初始化失败: ${name}`, e);
+            }
+        };
         // 在搜索页面嵌入: 快捷操作区域
-        this.handle_assist_area();
+        run_step('辅助区域', () => this.handle_assist_area());
 
         // 顶部工具栏: 识别摘要
-        this.insert_recognized_summary();
+        run_step('识别摘要', () => this.insert_recognized_summary());
 
         // 接管搜索历史
-        this.handle_search_history();
+        run_step('搜索历史', () => this.handle_search_history());
 
         // 点击搜索结果时结算一次补全使用次数
         if (!this._result_click_count_listener) {
@@ -5738,28 +5758,34 @@ class SimpleSearchHZ extends siyuan.Plugin {
     }
     // 搜索事件触发
     inputSearchEvent(data) {
-        this.page = data.detail.searchElement.closest(".fn__flex-column");
+        this.page = data.detail.searchElement?.closest?.(".fn__flex-column") || null;
         this._search_config = data.detail.config;
         this.is_searching = true;
         mylog('搜索事件触发', data, data.detail.config, '触发页面', this.page);
 
-        // 1. 处理 第一次打开搜索页面, 打上标记, 而不是缓存
-        this.handle_open_search_page(data.detail);
-        // 2.1 替换原有搜索条件
-        this.replace_src_search(data.detail.config);
-        mylog("替换后参数", data.detail.config);
-        // 2.2 顶部识别摘要
-        this.update_recognized_summary();
-        // 输入被"阻止搜索的特殊输入"拦截时, 不会有正常的搜索完成回调,
-        // 这里直接复位, 避免 is_searching 一直为 true 导致后续历史记录不自动显示
-        if (this.query?.blocked) {
+        try {
+            // 1. 处理 第一次打开搜索页面, 打上标记, 而不是缓存
+            this.handle_open_search_page(data.detail);
+            // 2.1 替换原有搜索条件
+            this.replace_src_search(data.detail.config);
+            mylog("替换后参数", data.detail.config);
+            // 2.2 顶部识别摘要
+            this.update_recognized_summary();
+            // 输入被"阻止搜索的特殊输入"拦截时, 不会有正常的搜索完成回调,
+            // 这里直接复位, 避免 is_searching 一直为 true 导致后续历史记录不自动显示
+            if (this.query?.blocked) {
+                this.is_searching = false;
+                return;
+            }
+            // 2.3 显示解析结果
+            this.update_analysis_result();
+            // 3. 搜索结束后触发
+            this.search_completed_callback();
+        } catch (e) {
+            // 兜底: 任何异常都不能让 is_searching 永久为 true, 也不能中断思源的搜索
+            mylog_error("处理搜索事件失败", e);
             this.is_searching = false;
-            return;
         }
-        // 2.3 显示解析结果
-        this.update_analysis_result();
-        // 3. 搜索结束后触发
-        this.search_completed_callback();
     }
 
     highlightKeywords(search_list_text_nodes, keyword) {
@@ -5935,6 +5961,9 @@ class SimpleSearchHZ extends siyuan.Plugin {
 
             let currentOffset = 0;
             let node;
+            // 兜底位置: 记录最后一个真正遍历到的文本节点, 而不是 walker.lastChild()
+            let last_text_node = null;
+            let last_text_length = 0;
 
             while ((node = walker.nextNode())) {
                 const nodeTextLength = node.textContent.length;
@@ -5947,16 +5976,22 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 }
 
                 currentOffset += nodeTextLength;
+                last_text_node = node;
+                last_text_length = nodeTextLength;
             }
 
-            // 如果超出总长度，返回最后一个位置
-            const lastNode = walker.lastChild();
-            return { node: lastNode, offset: lastNode.textContent.length };
+            // 偏移超出总长度: 落到最后一个文本节点末尾; 没有任何文本节点时返回 null
+            if (last_text_node) {
+                return { node: last_text_node, offset: last_text_length };
+            }
+            return null;
         }
 
         // 获取开始和结束位置
         const start = findNodeAtOffset(element, startOffset);
+        if (!start) return;
         const end = type === 'before' ? start : findNodeAtOffset(element, endOffset);
+        if (!end) return;
 
         // 创建选区
         const range = document.createRange();
