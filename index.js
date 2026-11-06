@@ -149,26 +149,41 @@ const SYT = {
     // SQL_FLAG: '("simple_search_flag"="simple_search_flag")',
     SQL_FLAG: 'true',
     // 获取当前文档id
-    // todo 不能通过聚焦来找
+    // 与思源 getActiveTab 一致: 以活动窗口里聚焦的页签为准;
+    // 插件拿不到页签模型, 用 "页签头 data-id -> 页签面板 -> protyle-title[data-node-id]" 还原
     get_data_id() {
-        // 在文档树那里找到选中的文档, 当做当前文档
-        let data_id = document.querySelector('.sy__file .b3-list-item--focus')?.getAttribute("data-node-id");
-        if (data_id) return data_id;
-        return null;
-        // 一般来说, 鼠标聚焦的文档就是当前文档
-        data_id = document.querySelector(`.layout__wnd--active[data-type="wnd"] .protyle-top>.protyle-title`)?.getAttribute("data-node-id");
-        if (data_id) return data_id;
-        // 如果没有鼠标聚焦的文档, 就找所有的页签, 然后匹配最上方文档名
-        const file_name = document.getElementById('drag')?.textContent;
-        document.querySelectorAll(`[data-type="wnd"] .layout-tab-bar>[data-type="tab-header"]>.item__text`).forEach( (ele) => {
-                if (ele.textContent == file_name) {
-                    data_id = ele.closest('[data-type="wnd"]')?.querySelector(`.protyle-top>.protyle-title`)?.getAttribute("data-node-id");
-                    if (!data_id) return data_id;
+        const header_doc_id = (header) => {
+            if (!header) return null;
+            const wnd = header.closest('[data-type="wnd"]');
+            const tab_id = header.getAttribute('data-id');
+            if (!wnd || !tab_id) return null;
+            const panel = wnd.querySelector(`.layout-tab-container > div[data-id="${tab_id}"]`);
+            // 搜索页签的面板里是搜索界面, 不是编辑器
+            if (!panel || panel.querySelector('#searchInput')) return null;
+            return panel.querySelector('.protyle-title[data-node-id]')?.getAttribute('data-node-id') || null;
+        };
+        // 1. 活动窗口的聚焦页签
+        const active_id = header_doc_id(
+            document.querySelector('.layout__wnd--active [data-type="tab-header"].item--focus'));
+        if (active_id) return active_id;
+        // 2/3. 活动页签不是编辑器(如搜索页签): 取最近激活过的编辑器页签, 先本窗口再全部窗口
+        const collect_editor_tabs = (scope) => {
+            const list = [];
+            scope.querySelectorAll('[data-type="tab-header"][data-id]').forEach(header => {
+                const id = header_doc_id(header);
+                if (id) {
+                    list.push({id, time: Number(header.getAttribute('data-activetime')) || 0});
                 }
-            }
-        )
-        // 如果文档树那里也没有聚焦, 就真的找不到了
-        return null;
+            });
+            return list;
+        };
+        const active_wnd = document.querySelector('.layout__wnd--active');
+        let candidates = active_wnd ? collect_editor_tabs(active_wnd) : [];
+        if (!candidates.length) candidates = collect_editor_tabs(document);
+        candidates.sort((a, b) => b.time - a.time);
+        if (candidates.length) return candidates[0].id;
+        // 4. 最后兜底: 文档树聚焦项(可能是没有打开的文档, 因此放在最后)
+        return document.querySelector('.sy__file .b3-list-item--focus')?.getAttribute("data-node-id") || null;
     },
     get_book_map() {
         const bookmap = {};
@@ -2440,6 +2455,8 @@ function search_translator(arg) {
                     ? `path regexp '${escapeSqlString(currentDocId)}'`
                     : `path like '%${escapeSqlLike(currentDocId)}.sy' escape '!'`;
                 help.path = options.match(/K/) ? "当前文档及子文档" : "当前文档";
+            } else {
+                help.errors.push('未找到当前文档, -k/-K 已忽略');
             }
         } else if (custom_path_all) {
             // 指定搜索路径为全部

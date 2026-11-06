@@ -185,6 +185,13 @@ test('路径过滤: 当前文档和当前文档及子文档', () => {
     assert.match(tree.val, /path regexp 'doc123'/);
 });
 
+test('路径过滤: 找不到当前文档时提示并忽略 -k', () => {
+    const { api: api_no_doc } = load_plugin({ focus_doc: null });
+    const r = api_no_doc.search_translator({ ...BASE_ARG, query: '-k' });
+    assert.match(r.help.errors.join('\n'), /未找到当前文档/);
+    assert.doesNotMatch(r.val, /path like/);
+});
+
 test('路径过滤: 笔记本名匹配', () => {
     const r = parse('/笔记');
     assert.match(r.val, /box in \('box_note'\)/);
