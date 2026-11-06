@@ -1710,8 +1710,10 @@ function search_translator(arg) {
         });
     };
 
-    const _handle_ret = function(ret) {
-        ret = ret.replace(/and true /g, '');
+    // clean_generated_sql 只对插件自己拼出的 SQL 生效:
+    // 用户显式写的 -s SQL 以及普通关键词里都可能出现 "and true", 不能改动
+    const _handle_ret = function(ret, clean_generated_sql = false) {
+        if (clean_generated_sql) ret = ret.replace(/and true /g, '');
         mylog(ret, keywords);
         const type = ret.slice(0, 2);
         const val = ret.slice(2);
@@ -2658,7 +2660,8 @@ function search_translator(arg) {
     // 构造搜索语句
     const ret = _buildQuery();
     
-    return _handle_ret(ret, keywords);
+    // 只有插件自己拼出的 SQL 才需要清理 "and true" 占位
+    return _handle_ret(ret, ret.startsWith('-s'));
 }
 
 /**

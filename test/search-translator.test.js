@@ -87,6 +87,24 @@ test('关键词: 重复关键词去重(与思源一致)', () => {
     assert.deepEqual(parse('-d 中国 中国').keywords, ['中国']);
 });
 
+test('SQL: 只清理插件生成 SQL 的 and true 占位', () => {
+    // 用户手写的 -s SQL 原样保留, 包括字符串字面量里的 and true
+    const user_sql = "select * from blocks where content like '%and true %'";
+    const explicit = parse('-s' + user_sql);
+    assert.equal(explicit.val, user_sql);
+
+    // 普通关键词里的 and true 也不能被删
+    const plain = parse('and true story');
+    assert.equal(plain.val, 'and true story');
+    assert.deepEqual(plain.keywords, ['and', 'true', 'story']);
+    assert.equal(parse('sand true story').val, 'sand true story');
+
+    // 插件拼出的 SQL 仍按原逻辑清理占位
+    const generated = parse('-d 中国');
+    assert.equal(generated.type, '-s');
+    assert.equal(generated.val.includes('and true'), false);
+});
+
 test('搜索方式: SQL 紧贴写法和任意位置', () => {
     const glued = parse('-sselect * from blocks');
     assert.equal(glued.type, '-s');
