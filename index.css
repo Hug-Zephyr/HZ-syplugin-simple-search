@@ -41,6 +41,15 @@
     background-color: var(--b3-menu-background);
 }
 
+/* SQL 模式输入框: 随内容自动增高, 平时保持普通搜索框高度 */
+#searchInput.search__input--sql {
+    field-sizing: content;
+    height: auto;
+    min-height: 42px;
+    max-height: 30vh;
+    overflow-y: auto;
+}
+
 /* 列表上下滚动提示(悬浮, 不占布局空间) */
 .HZ-search-list-hint {
     position: absolute;

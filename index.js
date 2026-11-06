@@ -4966,6 +4966,10 @@ class SimpleSearchHZ extends siyuan.Plugin {
             this.dispatch_input()
         }, true);
         inputElement?.addEventListener('input', (event) => {
+            // SQL 模式输入框高度随内容变化后, 重新定位已打开的建议列表
+            if (this.is_show_history_list() || this.is_show_command_list()) {
+                requestAnimationFrame(() => this.reposition_search_history_list());
+            }
             // console.log('input事件触发', event.inputType, event.target.value, this.history_input_flag, event.isComposing, this.is_searching);
             const intercept = !!this.g_setting.intercept_search;
             if (this.history_input_flag) {
@@ -5081,6 +5085,19 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     event.stopPropagation();
                     this.hide_command_completion();
                     break;
+                }
+                return;
+            }
+            // 插件翻译出的 SQL 不是用户在编辑 SQL: 回车/Shift+回车按普通搜索处理,
+            // 否则会插入换行, 把 "-d" 变成 "-d\n" 导致指令解析失败。
+            // 不能 preventDefault(会让思源 windowKeyDown 直接 return), 而是临时改成非 SQL 模式:
+            // beforeinput 会阻止换行, 原生 keydown 会打开选中的结果。
+            if (type === 'enter' && !event.isComposing && !event.altKey && !event.ctrlKey && !event.metaKey &&
+                !this.is_show_history_list() && this.is_implicit_sql_query()) {
+                const config = this._search_config;
+                if (config && config.method === 2) {
+                    config.method = 0;
+                    setTimeout(() => { config.method = 2; }, 0);
                 }
                 return;
             }
@@ -5265,9 +5282,47 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // }
 
     }
+    // 插件会改写 config.method, 但思源的 updateSearchMethodControls 在 input-search 之前已经执行;
+    // 这里按同样的规则同步 搜索类型/路径/替换/分组 等控件的可用状态
+    sync_search_method_controls(config) {
+        const element = this.page;
+        if (!element || !config || !document.body.contains(element)) return;
+        const method = config.method;
+        const group = config.group;
+        const language = window.siyuan.languages || {};
+        const unavailable = language.searchControlUnavailable || '该搜索方式下不可用';
+        const filter_ok = method !== 2;
+        const path_ok = method !== 2;
+        const replace_ok = method !== 2 && method !== 4;
+        const group_ok = method !== 4;
+        const include_ok = path_ok && (config.idPath || []).some(path => path.split('/').length > 1);
+        const set_state = (selector, enabled, label) => {
+            const ele = element.querySelector(selector);
+            if (!ele) return;
+            ele.toggleAttribute('disabled', !enabled);
+            ele.setAttribute('aria-disabled', String(!enabled));
+            ele.classList.add('ariaLabel');
+            ele.setAttribute('aria-label', enabled ? label : `${label} - ${unavailable}`);
+            ele.removeAttribute('title');
+        };
+        set_state('#searchFilter', filter_ok, language.searchType || '搜索类型');
+        set_state('#searchPath', path_ok, language.specifyPath || '指定路径');
+        set_state('#searchPathInput .search__rmpath', path_ok, language.remove || '删除');
+        set_state('#searchInclude', include_ok, language.includeChildDoc || '包含子文档');
+        set_state('#searchReplace', replace_ok, language.replace || '替换');
+        // 替换输入行
+        const replace_row = element.querySelectorAll('.search__header')[1];
+        if (replace_row) {
+            replace_row.classList.toggle('fn__none', !(config.hasReplace && replace_ok && !window.siyuan.isPublish));
+        }
+        // 分组时的展开/折叠按钮
+        this.get_ele('#searchExpand')?.parentElement?.classList.toggle('fn__none', group !== 1 || !group_ok);
+    }
     // 替换原始搜索参数
     replace_src_search(query_arg) {
         if(!query_arg) return;
+        const prev_method = query_arg.method;
+        const prev_group = query_arg.group;
         // 上次是指定的分组/排序, 这次先恢复
         if (this.last_sort != -1) {
             query_arg.sort = this.last_sort;
@@ -5309,6 +5364,10 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.get_ele("#searchSyntaxCheck>svg>use")?.setAttribute('xlink:href', method_map[res.type].icon);
         // 搜索内容
         query_arg.query = res.val;
+        // 搜索方式/分组变化后, 同步原生控件可用状态
+        if (prev_method !== query_arg.method || prev_group !== query_arg.group) {
+            this.sync_search_method_controls(query_arg);
+        }
 
         // 如果指定了分组/排序方式, 就得记录下指定前的
         // 等到下次进来的时候, 再恢复
@@ -5652,9 +5711,15 @@ class SimpleSearchHZ extends siyuan.Plugin {
             }
         });
     }
+    // 当前查询是插件翻译出的 SQL(不是用户显式写的 -s ...)
+    is_implicit_sql_query() {
+        if (this.query?.type !== '-s') return false;
+        return !(this.query.help?.recognized || []).some(item => item.token === '-s');
+    }
     // 搜索事件触发
     inputSearchEvent(data) {
         this.page = data.detail.searchElement.closest(".fn__flex-column");
+        this._search_config = data.detail.config;
         this.is_searching = true;
         mylog('搜索事件触发', data, data.detail.config, '触发页面', this.page);
 
@@ -6028,6 +6093,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         if (window.siyuan.isPublish) return;
         this.css            = null;
         this.page           = null;  // 搜索框所在的页面, 所有搜索都在此元素下搜索, 用于隔离 搜索页签和搜索弹窗
+        this._search_config = null;  // 最近一次 input-search 的配置对象, 用于临时切换 SQL 按键行为
         this.is_searching   = false; // 是否正在搜索
         this.click_res_flag = false; // 点击搜索结果的标记
         this.last_sort      = -1;    // 页面原始的排序方式
