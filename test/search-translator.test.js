@@ -171,6 +171,23 @@ test('路径过滤: 全文档开关与路径一起使用', () => {
     assert.deepEqual(r.keywords, ['项目']);
 });
 
+test('路径过滤: 显式块类型时路径不再强制仅文档', () => {
+    // 无显式类型: 最后一段仍作为文档名, 只搜文档
+    const pure = parse('/笔记/项目');
+    assert.deepEqual(pure.keywords, ['项目']);
+    assert.match(pure.val, /type regexp '\^\[d\]\$' and content like '%项目%'/);
+
+    // 显式类型: 路径按普通路径过滤, 不再附加文档名条件
+    for (const query of ['/笔记/项目 -p', '/笔记/项目 -d', '/笔记/项目 -dhp']) {
+        const r = parse(query);
+        assert.deepEqual(r.keywords, []);
+        assert.deepEqual(r.help.custom_path, ['*笔记*/*项目*']);
+        assert.match(r.val, /hpath like '%笔记%\/%项目%' escape '!'/);
+        assert.doesNotMatch(r.val, /content like '%项目%'/);
+    }
+    assert.match(parse('/笔记/项目 -p').val, /type regexp '\^\[p\]\$'/);
+});
+
 test('路径过滤: 排除路径', () => {
     const r = parse('-/笔记');
     assert.deepEqual(r.help.excludedPath, ['*笔记*']);

@@ -2393,6 +2393,9 @@ function search_translator(arg) {
         const _pathLike = (arr) => arr.map(escapeSqlLike).join('%/%');
         // 用户是否输入了关键词, 必须在循环前判断: 循环里会把路径推导出的文档名 push 进 keywords
         const no_keywords = keywords.length == 0;
+        // 显式指定了块类型时, 这次是块搜索, 路径只做普通路径过滤,
+        // 不再套用"仅文档 + 最后一段当文档名"的规则, 否则会和类型条件互斥
+        const has_explicit_type = !!options.replace(/[kKe]/g, "") || extra_types.length > 0;
         // 指定搜索路径名称
         // 1. 只有搜索路径 /笔记本1/文档1
         // 2. 指定搜索路径 加其他 /笔记本1 -h 序列号
@@ -2401,7 +2404,7 @@ function search_translator(arg) {
             if (path_arr.length == 0) return;
 
             let file_sql = ""
-            if (no_keywords) {
+            if (no_keywords && !has_explicit_type) {
                 // 没有关键词时, 转成搜索文档
                 const file_name = path_arr.at(-1);
                 file_sql = `type regexp '^[d]$' and content like '%${escapeSqlLike(file_name)}%' escape '!'`
