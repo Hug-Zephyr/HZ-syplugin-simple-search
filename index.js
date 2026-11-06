@@ -1716,7 +1716,13 @@ function search_translator(arg) {
         const type = ret.slice(0, 2);
         const val = ret.slice(2);
         if (keywords.length == 0 && type == '-w' && val.length > 0) {
-            keywords.push(val);
+            // 关键字模式按空白拆词: 思源对多词按整篇文档 AND 搜索,
+            // 拆开后解析展示、光标定位才能逐词处理
+            keywords.push(...val.split(/\s+/).filter(Boolean));
+        }
+        // 与思源一致: 重复关键词只保留一次(不影响已经拼好的搜索语句)
+        if (keywords.length > 1) {
+            keywords.splice(0, keywords.length, ...new Set(keywords));
         }
         help.ret_str  = ret;
         if (help.type.length == 0) help.type = type;

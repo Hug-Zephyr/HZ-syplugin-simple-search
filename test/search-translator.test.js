@@ -65,6 +65,28 @@ test('搜索方式: -w / -q / -s / -r', () => {
     assert.equal(parse('-r abc').val, 'abc');
 });
 
+test('搜索方式: 显式 -w 多词按空白拆分关键词', () => {
+    const multi = parse('-w 中国 历史');
+    assert.equal(multi.type, '-w');
+    // 实际搜索内容不变, 只拆 keywords 供解析展示/光标定位使用
+    assert.equal(multi.val, '中国 历史');
+    assert.deepEqual(multi.keywords, ['中国', '历史']);
+
+    const spaces = parse('-w   中国   历史  ');
+    assert.equal(spaces.val, '中国   历史');
+    assert.deepEqual(spaces.keywords, ['中国', '历史']);
+
+    const dup = parse('-w 123 123 456');
+    assert.equal(dup.val, '123 123 456');
+    assert.deepEqual(dup.keywords, ['123', '456']);
+});
+
+test('关键词: 重复关键词去重(与思源一致)', () => {
+    assert.deepEqual(parse('123 123').keywords, ['123']);
+    assert.deepEqual(parse('b a b').keywords, ['b', 'a']);
+    assert.deepEqual(parse('-d 中国 中国').keywords, ['中国']);
+});
+
 test('搜索方式: SQL 紧贴写法和任意位置', () => {
     const glued = parse('-sselect * from blocks');
     assert.equal(glued.type, '-s');
