@@ -273,11 +273,17 @@ test('路径过滤: 当前文档和当前文档及子文档', () => {
     assert.match(tree.val, /path regexp 'doc123'/);
 });
 
-test('路径过滤: 找不到当前文档时提示并忽略 -k', () => {
+test('路径过滤: 找不到当前文档时 -k 回退到页面路径并提示', () => {
     const { api: api_no_doc } = load_plugin({ focus_doc: null });
-    const r = api_no_doc.search_translator({ ...BASE_ARG, query: '-k' });
+    const r = api_no_doc.search_translator({
+        ...BASE_ARG, types: { paragraph: true },
+        idPath: ['box_page/笔记'], query: '-k 关键词',
+    });
     assert.match(r.help.errors.join('\n'), /未找到当前文档/);
-    assert.doesNotMatch(r.val, /path like/);
+    // 不应使用当前文档 id, 而是回退到页面配置的搜索路径
+    assert.doesNotMatch(r.val, /path like '%doc123\.sy'/);
+    assert.match(r.val, /box='box_page' and path like '\/笔记%'/);
+    assert.doesNotMatch(r.val, /and \(false\)/);
 });
 
 test('路径过滤: 笔记本名匹配', () => {
@@ -807,12 +813,13 @@ test('环境: 关闭的笔记本不参与笔记本名匹配', () => {
     assert.doesNotMatch(r.val, /box in/);
 });
 
-test('环境: 找不到当前文档时 -k 不加路径条件', () => {
+test('环境: 找不到当前文档且页面未配置路径时 -k 不加路径限制', () => {
     const no_focus = load_plugin({ focus_doc: null });
     const r = JSON.parse(JSON.stringify(no_focus.api.search_translator({
-        ...BASE_ARG, query: '-k',
+        ...BASE_ARG, types: { paragraph: true }, query: '-k',
     })));
     assert.doesNotMatch(r.val, /path like/);
+    assert.match(r.help.errors.join('\n'), /未找到当前文档/);
 });
 
 test('环境: 自定义忽略输入会阻止搜索', () => {

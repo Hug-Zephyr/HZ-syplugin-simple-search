@@ -2517,29 +2517,34 @@ function search_translator(arg) {
                     : `path like '%${escapeSqlLike(currentDocId)}.sy' escape '!'`;
                 help.path = options.match(/K/) ? "当前文档及子文档" : "当前文档";
             } else {
-                help.errors.push('未找到当前文档, -k/-K 已忽略');
+                // 取不到当前文档时不限制到当前文档, 回退到页面搜索路径并提示
+                help.errors.push('未找到当前文档, -k/-K 已回退到页面搜索路径');
             }
-        } else if (custom_path_all) {
-            // 指定搜索路径为全部
-            help.path = "全部";
-        } else if (pageSearchPath.length) {
-            // 使用搜索页面上的搜索路径
-            let filterPath = "";
-            for (let path of pageSearchPath) {
-                let boxPath = "";
-                let filePath = "";
-                const idx = path.indexOf('/');
-                if (idx === -1) {
-                    boxPath = path;
-                    filterPath += ` or (box='${escapeSqlString(boxPath)}')`;
-                } else {
-                    boxPath = path.slice(0, idx);
-                    filePath = path.slice(idx);
-                    filterPath += ` or (box='${escapeSqlString(boxPath)}' and path like '${escapeSqlLike(filePath)}%' escape '!')`;
+        }
+        // 没有限定到当前文档时(未指定 -k/-K, 或取不到当前文档), 沿用页面配置的路径
+        if (!sqlCurrentDoc) {
+            if (custom_path_all) {
+                // 指定搜索路径为全部
+                help.path = "全部";
+            } else if (pageSearchPath.length) {
+                // 使用搜索页面上的搜索路径
+                let filterPath = "";
+                for (let path of pageSearchPath) {
+                    let boxPath = "";
+                    let filePath = "";
+                    const idx = path.indexOf('/');
+                    if (idx === -1) {
+                        boxPath = path;
+                        filterPath += ` or (box='${escapeSqlString(boxPath)}')`;
+                    } else {
+                        boxPath = path.slice(0, idx);
+                        filePath = path.slice(idx);
+                        filterPath += ` or (box='${escapeSqlString(boxPath)}' and path like '${escapeSqlLike(filePath)}%' escape '!')`;
+                    }
+                };
+                if (filterPath.length) {
+                    sqlCurrentDoc = `${filterPath.slice(4)}`;
                 }
-            };
-            if (filterPath.length) {
-                sqlCurrentDoc = `${filterPath.slice(4)}`;
             }
         }
         return sqlCurrentDoc ? `(${sqlCurrentDoc})` : "true";
