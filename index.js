@@ -2917,11 +2917,49 @@ function get_default_plugin_settings() {
 
 class SimpleSearchHZ extends siyuan.Plugin {
     get_ele(selector) {
-        if (!document.body.contains(this.page)) {
+        if (this.page && !document.body.contains(this.page)) {
+            // 搜索页签/弹窗已关闭: 清理页面临时状态
             this.page = null;
-            return null;
+            this.reset_page_state();
         }
+        if (!this.page) return null;
         return this.page.querySelector(selector);
+    }
+    // 搜索页签/弹窗关闭或切换页面后, 清理只属于该页面的临时状态
+    reset_page_state() {
+        clearTimeout(this.history_timer_id);
+        this.history_timer_id = 0;
+        this.history_previewing = false;
+        this.history_input_flag = false;
+        this.history_typed_value = '';
+        this.suggestion_mode = null;
+        this.command_completion = null;
+        this.command_index = 0;
+        this._history_suppressed_value = null;
+        this.is_searching = false;
+        this._search_config = null;
+        if (this._page_resize_observer) {
+            this._page_resize_observer.disconnect();
+            this._page_resize_observer = null;
+        }
+        this._page_resize_observer_page = null;
+    }
+    // 页面尺寸变化(弹窗缩放/窗口缩放/分栏)时, 重新定位已打开的建议列表
+    // 每次输入都确认一次, 页面短暂脱离再挂回时也能恢复监听
+    ensure_page_resize_observer() {
+        if (!this.page || typeof ResizeObserver === 'undefined') return;
+        if (this._page_resize_observer && this._page_resize_observer_page === this.page) return;
+        if (this._page_resize_observer) this._page_resize_observer.disconnect();
+        let resize_raf = 0;
+        this._page_resize_observer = new ResizeObserver(() => {
+            if (resize_raf) return;
+            resize_raf = requestAnimationFrame(() => {
+                resize_raf = 0;
+                this.reposition_search_history_list();
+            });
+        });
+        this._page_resize_observer.observe(this.page);
+        this._page_resize_observer_page = this.page;
     }
     get_search_input() {
         return this.get_ele('#searchInput');
@@ -4645,6 +4683,38 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.limit_suggestion_list_height(this.get_suggestion_row_limit());
     }
 
+    // 拖动搜索弹窗(移动/缩放)时, 让建议列表跟随输入框
+    bind_suggestion_drag_follow() {
+        if (this._suggestion_drag_listener) return;
+        this._suggestion_drag_listener = true;
+        document.addEventListener('pointerdown', (event) => {
+            // 只处理弹窗的拖动区(标题/边框)
+            if (!event.target?.closest?.('.resize__move, [class^="resize__"], [class*=" resize__"]')) return;
+            if (!this.is_show_history_list() && !this.is_show_command_list()) return;
+            let raf = 0;
+            const on_move = () => {
+                if (raf) return;
+                raf = requestAnimationFrame(() => {
+                    raf = 0;
+                    // 拖动过程中只跟随位置, 避免反复重算高度导致列表跳动
+                    this.position_suggestion_box();
+                });
+            };
+            const on_end = () => {
+                document.removeEventListener('pointermove', on_move, true);
+                document.removeEventListener('pointerup', on_end, true);
+                document.removeEventListener('pointercancel', on_end, true);
+                if (raf) cancelAnimationFrame(raf);
+                raf = 0;
+                // 拖动结束后完整校正一次(位置 + 高度)
+                this.reposition_search_history_list();
+            };
+            document.addEventListener('pointermove', on_move, true);
+            document.addEventListener('pointerup', on_end, true);
+            document.addEventListener('pointercancel', on_end, true);
+        }, true);
+    }
+
     // 建议列表容器定位在输入框下方
     position_suggestion_box() {
         const input = this.get_search_input();
@@ -4680,8 +4750,11 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // 先清掉旧值, 才能量出完整高度
         history_ul.style.maxHeight = '';
         const rect = input.getBoundingClientRect();
+        // 搜索页(弹窗)可能比视口矮, 列表不能超出页面底部
+        const page_rect = this.page?.getBoundingClientRect?.();
+        const bottom_limit = page_rect ? Math.min(window.innerHeight, page_rect.bottom) : window.innerHeight;
         // 提示条悬浮在列表上, 不再预留提示条高度
-        const avail_height = window.innerHeight - rect.bottom - 8;
+        const avail_height = bottom_limit - rect.bottom - 8;
         let limit_height = avail_height;
         if (row_limit > 0 && history_ul.children.length > row_limit) {
             const list_top = history_ul.getBoundingClientRect().top;
@@ -5244,6 +5317,14 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 if (path.includes(this.get_search_input())) return;
                 if (path.includes(this.get_suggestion_box())) return;
                 if (path.includes(this.get_search_history_ul())) return;
+                // 拖动弹窗标题/边框、结果分栏或布局分隔条时产生的 click 不算点击外部
+                if (event.target?.closest?.('.resize__move, .search__drag, .layout__resize, .layout__dockresize, [class^="resize__"], [class*=" resize__"]')) return;
+                // 点击遮罩会关闭搜索弹窗, 只隐藏列表, 不要在销毁过程中再触发一次搜索
+                if (event.target?.closest?.('.b3-dialog__scrim')) {
+                    this.history_previewing = false;
+                    this.hidden_search_history_list();
+                    return;
+                }
                 if (this.is_show_command_list()) {
                     this.hide_command_completion();
                     return;
@@ -5346,6 +5427,9 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // 新文档树事件
         // 3.接管上下键选中节点的效果
         this.handle_src_focus_file();
+
+        // 拖动弹窗时建议列表跟随
+        this.bind_suggestion_drag_follow();
 
         // 4.全部展开/全部折叠事件
         this.get_ele('#searchExpand')?.addEventListener('click', () => {
@@ -5808,7 +5892,13 @@ class SimpleSearchHZ extends siyuan.Plugin {
     }
     // 搜索事件触发
     inputSearchEvent(data) {
-        this.page = data.detail.searchElement?.closest?.(".fn__flex-column") || null;
+        const next_page = data.detail.searchElement?.closest?.(".fn__flex-column") || null;
+        // 切换了搜索页(页签/弹窗)时, 上一页的临时状态不能带过来
+        if (this.page && this.page !== next_page) {
+            this.reset_page_state();
+        }
+        this.page = next_page;
+        this.ensure_page_resize_observer();
         this._search_config = data.detail.config;
         this.is_searching = true;
         mylog('搜索事件触发', data, data.detail.config, '触发页面', this.page);
@@ -6280,7 +6370,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         });
     }
     save_plugin_setting(){
-        this.saveData("settings.json", JSON.stringify(this.g_setting));
+        const ret = this.saveData("settings.json", JSON.stringify(this.g_setting));
+        if (ret && ret.catch) ret.catch(e => mylog_error("保存配置失败", e));
         mylog("保存配置: ", this.g_setting);
     }
     // 布局初始化完成后, 触发
