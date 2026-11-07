@@ -1648,6 +1648,8 @@ function search_translator(arg) {
         group_desc  : "",
         errors      : [],
         recognized  : [],   // 被插件识别的指令 token, 用于顶部摘要
+        mode_explicit: false, // 用户显式指定了搜索方式(-w/-q/-s/-r)
+        preview_keywords: [], // 预览区高亮用的关键词(不影响光标定位)
     }
     // 记录一个被识别的指令 token(同 token 只保留第一次)
     const _add_recognized = function(token, desc) {
@@ -1710,6 +1712,40 @@ function search_translator(arg) {
         });
     };
 
+    // 显式模式(-w/-q)下原生预览拿的是带模式的原始输入, 需要插件补高亮;
+    // 这里从翻译后的查询文本里尽力提取可用于高亮的词(-r 走正则高亮, -s 不猜)
+    const _extract_preview_keywords = function(type, val) {
+        const words = [];
+        const add = (word) => {
+            word = (word || '').trim();
+            if (word && !words.includes(word)) words.push(word);
+        };
+        if (type === '-w') {
+            val.split(/\s+/).forEach(add);
+            return words;
+        }
+        if (type !== '-q') return words;
+        // 查询语法: 去掉字段前缀/连接词/排除项/括号引号/前缀通配
+        const text = val.replace(/\b(content|name|alias|memo|tag|hpath)\s*:\s*/gi, '');
+        const tokens = text.match(/"[^"]*"|'[^']*'|\S+/g) || [];
+        let exclude_next = false;
+        for (let token of tokens) {
+            if (!token) continue;
+            if (/^(AND|OR)$/i.test(token)) continue;
+            if (/^NOT$/i.test(token)) { exclude_next = true; continue; }
+            let negative = exclude_next || /^[-!]/.test(token);
+            exclude_next = false;
+            token = token
+                .replace(/^[(（]+/, '')
+                .replace(/[)）]+$/, '')
+                .replace(/^["']+/, '')
+                .replace(/["']+$/, '')
+                .replace(/\*+$/, '');
+            if (negative || !token) continue;
+            add(token);
+        }
+        return words;
+    };
     // clean_generated_sql 只对插件自己拼出的 SQL 生效:
     // 用户显式写的 -s SQL 以及普通关键词里都可能出现 "and true", 不能改动
     const _handle_ret = function(ret, clean_generated_sql = false) {
@@ -1730,6 +1766,10 @@ function search_translator(arg) {
         if (help.type.length == 0) help.type = type;
         help.group_file = doc_mode;
         help.keywords = keywords;
+        // 预览高亮用的词: 有结构化关键词时直接用, 显式 -q 再从查询语法里提取
+        help.preview_keywords = keywords.length
+            ? keywords.slice()
+            : _extract_preview_keywords(type, val);
         help.excluded = excludedKeywords;
         if (Object.keys(help.block_type).length == 0 && type != '-s') {
             // 填充辅助信息的类型(包含标题级别/列表子类型)
@@ -2649,6 +2689,7 @@ function search_translator(arg) {
     const mode_hit = _scan_mode();
     if (mode_hit) {
         _add_recognized(mode_hit.token, mode_hit.desc);
+        help.mode_explicit = true;
         return _handle_ret(mode_hit.mode + mode_hit.query);
     }
     if (input.length < 2) {
@@ -5823,6 +5864,43 @@ class SimpleSearchHZ extends siyuan.Plugin {
             });
         return ranges;
     }
+    // 用用户的正则表达式在文本节点上生成高亮范围(预览/列表)
+    highlightRegexKeywords(text_nodes, pattern) {
+        if (!pattern) return [];
+        let re;
+        try {
+            // 兼容 Go 正则常见的开头内联标志, 如 (?i)
+            let source = pattern;
+            let flags = 'g';
+            const inline = source.match(/^\(\?([ims]+)\)/);
+            if (inline) {
+                flags += inline[1];
+                source = source.slice(inline[0].length);
+            }
+            re = new RegExp(source, flags);
+        } catch (e) {
+            return [];
+        }
+        const ranges = [];
+        for (const el of text_nodes) {
+            if (!el || el.nodeType !== 3) continue;
+            const text = el.textContent;
+            re.lastIndex = 0;
+            let match;
+            let count = 0;
+            while ((match = re.exec(text)) && count++ < 1000) {
+                if (!match[0].length) {
+                    re.lastIndex++;
+                    continue;
+                }
+                const range = document.createRange();
+                range.setStart(el, match.index);
+                range.setEnd(el, match.index + match[0].length);
+                ranges.push(range);
+            }
+        }
+        return ranges;
+    }
     // 只清除本插件注册的高亮
     // CSS.highlights 是全局注册表, 思源和其他插件也在用(如 search-mark-*), 不能整体 clear
     clear_highlight() {
@@ -5836,37 +5914,68 @@ class SimpleSearchHZ extends siyuan.Plugin {
         if (!query) return;
         // 加载完毕的页面不在当前页面, 直接退出
         if (!this.page?.contains(data.detail.protyle.element)) return;
-        // 暂时只处理sql语句的高亮
-        if (query.type != '-s') return;
+        const mode_explicit = !!query.help?.mode_explicit;
+        // 插件生成的 SQL, 或显式 -w/-q/-r: 原生预览用的是输入框原文(带指令前缀),
+        // 原生高亮不生效, 需要插件补
+        if (query.type !== '-s' && !mode_explicit) return;
+
+        const is_regex = query.type === '-r';
+        const preview_keywords = (query.help?.preview_keywords?.length
+            ? query.help.preview_keywords
+            : query.keywords) || [];
+        const collect_ranges = (nodes) => {
+            if (is_regex) return this.highlightRegexKeywords(nodes, query.val);
+            const ranges = [];
+            preview_keywords.forEach((keyword) => {
+                ranges.push(...this.highlightKeywords(nodes, keyword));
+            });
+            return ranges;
+        };
 
         this.clear_highlight();     // 清除上个高亮
 
         // 判断是否存在搜索界面
         let search_list = this.get_new_search_list();
         if (!search_list) search_list = this.get_search_list();
-        if (!search_list) return;
 
-        // 高亮 搜索结果列表里面的
-        // 获取所有具有 b3-list-item__text 类的节点的文本子节点
-        const search_list_text_nodes = Array.from(search_list.querySelectorAll(".b3-list-item__text:not(.ariaLabel)"), el => el.firstChild);
-        const allRanges = []; // 收集所有高亮范围
-        query.keywords.forEach((keyword) => {
-            const ranges = this.highlightKeywords(search_list_text_nodes, keyword); // 收集当前关键词的高亮范围
-            allRanges.push(...ranges); // 合并到总范围
-        });
-        const searchResultsHighlight = new Highlight(...allRanges.flat()); // 创建合并后的高亮对象
-        CSS.highlights.set("highlight-keywords-search-list", searchResultsHighlight); // 注册合并的高亮
+        // 列表: -w/-q 的搜索结果由原生带 <mark>, 不重复处理; SQL 和正则需要插件补
+        if (search_list && (query.type === '-s' || is_regex)) {
+            // 获取所有具有 b3-list-item__text 类的节点的文本子节点
+            const search_list_text_nodes = Array.from(search_list.querySelectorAll(".b3-list-item__text:not(.ariaLabel)"), el => el.firstChild);
+            CSS.highlights.set("highlight-keywords-search-list", new Highlight(...collect_ranges(search_list_text_nodes)));
+        }
 
         // 高亮 点击搜索结果文档预览里面的
         const search_preview = this.get_ele('#searchPreview')
+        if (!search_preview) return;
+        // 只处理主预览, 忽略同页面的其他 Protyle(如未引用预览)
+        const protyle = data.detail.protyle;
+        if (protyle?.element !== search_preview) return;
         // 获取代码块里面是否有关键词, 为了之后是否延时高亮
-        let has_hljs = Array.from(search_preview.querySelectorAll('.hljs>div[spellcheck]'))
-        .some(ele => query.keywords.some(
-            keyword => ele.innerText.includes(keyword)
-        ));
-        setTimeout(() => { // 代码块会延时渲染, 如果有代码块, 也等待300毫秒(思源就这么做的)
+        const has_hljs = is_regex
+            ? !!search_preview.querySelector('.hljs')
+            : Array.from(search_preview.querySelectorAll('.hljs>div[spellcheck]')).some(ele =>
+                preview_keywords.some(keyword => ele.innerText.includes(keyword)));
+
+        // 优先使用 Protyle 的内容容器, 避免依赖页面 DOM 的层级顺序
+        const preview_root = protyle.contentElement || search_preview.children[1] || search_preview;
+        // 接入思源自己的高亮结构: 重复点击结果项时, 思源会沿 highlight.ranges
+        // 依次跳到下一个匹配(renderNextSearchMark), 插件自己注册的 Highlight 不支持这个
+        const hl = protyle.highlight;
+        const hl_uuid = hl?.styleElement?.dataset?.uuid;
+        const use_native_hl = !!(hl && hl.mark && hl.markHL && hl_uuid);
+        // 思源的 searchMarkRender 在 afterAVRender 的微任务里才调度, 可能晚于本事件,
+        // 用它自己的原始输入关键词覆盖掉插件的高亮; 这里多次校验, 被覆盖后重新装回
+        const token = this._preview_highlight_token = (this._preview_highlight_token || 0) + 1;
+        let applied_ranges = null;
+        const apply_preview_highlight = () => {
+            // 预览已经被新的点击/搜索替换
+            if (token !== this._preview_highlight_token) return;
+            if (!search_preview.isConnected) return;
+            // 已经是插件装上的范围, 不要再重置, 避免打断逐个跳转
+            if (applied_ranges && hl?.ranges === applied_ranges) return;
             // 创建 createTreeWalker 迭代器，用于遍历文本节点，保存到一个数组
-            const tree_walker = document.createTreeWalker(search_preview.children[1], NodeFilter.SHOW_TEXT);
+            const tree_walker = document.createTreeWalker(preview_root, NodeFilter.SHOW_TEXT);
             const search_preview_text_nodes = [];
             let current_node = tree_walker.nextNode();
             while (current_node) {
@@ -5875,14 +5984,36 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 }
                 current_node = tree_walker.nextNode();
             }
-            const previewRanges = [];
-            query.keywords.forEach((keyword) => {
-                const ranges = this.highlightKeywords(search_preview_text_nodes, keyword); // 收集搜索预览的高亮范围
-                previewRanges.push(...ranges);
-            });
-            const searchPreviewHighlight = new Highlight(...previewRanges.flat());
-            CSS.highlights.set("highlight-keywords-search-preview", searchPreviewHighlight)
-        }, has_hljs ? 300: 0);
+            const ranges = collect_ranges(search_preview_text_nodes);
+            if (use_native_hl) {
+                // 初始定位到被点击块内的第一个匹配
+                let index = 0;
+                const block_id = protyle.block?.id;
+                if (block_id) {
+                    const found = ranges.findIndex((range) => {
+                        const node = range.startContainer;
+                        const ele = node?.nodeType === 3 ? node.parentElement : node;
+                        return ele?.closest?.(`[data-node-id="${block_id}"]`);
+                    });
+                    if (found >= 0) index = found;
+                }
+                hl.ranges = ranges;
+                hl.rangeIndex = index;
+                hl.mark.clear();
+                hl.markHL.clear();
+                ranges.forEach((range, i) => {
+                    (i === index ? hl.markHL : hl.mark).add(range);
+                });
+                CSS.highlights.set("search-mark-" + hl_uuid, hl.mark);
+                CSS.highlights.set("search-mark-hl-" + hl_uuid, hl.markHL);
+            } else {
+                // 不支持 CSS Highlight 时退回插件自己的样式(不支持挨个切换)
+                CSS.highlights.set("highlight-keywords-search-preview", new Highlight(...ranges));
+            }
+            applied_ranges = ranges;
+        };
+        (has_hljs ? [320, 450, 900, 1700, 3000] : [0, 120, 400, 900, 1700, 3000])
+            .forEach(delay => setTimeout(apply_preview_highlight, delay));
     }
     scrollToCursor() {
         const selection = window.getSelection();

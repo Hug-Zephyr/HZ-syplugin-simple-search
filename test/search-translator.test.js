@@ -87,6 +87,37 @@ test('关键词: 重复关键词去重(与思源一致)', () => {
     assert.deepEqual(parse('-d 中国 中国').keywords, ['中国']);
 });
 
+test('预览高亮: 显式模式提取高亮词, 不影响光标定位关键词', () => {
+    const w = parse('-w 中国 历史');
+    assert.equal(w.help.mode_explicit, true);
+    assert.deepEqual(w.help.preview_keywords, ['中国', '历史']);
+
+    const q = parse('-q中国 AND 历史 NOT 苏联');
+    assert.equal(q.help.mode_explicit, true);
+    assert.deepEqual(q.help.preview_keywords, ['中国', '历史']);
+    // 光标定位仍用 keywords, 显式模式保持为空
+    assert.deepEqual(q.keywords, []);
+
+    const q_field = parse('-q(content:中国) OR -苏联');
+    assert.deepEqual(q_field.help.preview_keywords, ['中国']);
+
+    const q_phrase = parse('-q"中国 历史" OR 文化');
+    assert.deepEqual(q_phrase.help.preview_keywords, ['中国 历史', '文化']);
+
+    // 正则走正则高亮, 不提取字面量
+    const r = parse('-r中国.*历史');
+    assert.equal(r.help.mode_explicit, true);
+    assert.deepEqual(r.help.preview_keywords, []);
+
+    // 插件生成的 SQL 用结构化关键词
+    const sql = parse('-p 123');
+    assert.equal(sql.help.mode_explicit, false);
+    assert.deepEqual(sql.help.preview_keywords, ['123']);
+
+    // 普通关键词不是显式模式
+    assert.equal(parse('中国 历史').help.mode_explicit, false);
+});
+
 test('SQL: 只清理插件生成 SQL 的 and true 占位', () => {
     // 用户手写的 -s SQL 原样保留, 包括字符串字面量里的 and true
     const user_sql = "select * from blocks where content like '%and true %'";
