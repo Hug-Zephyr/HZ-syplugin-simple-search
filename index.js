@@ -2919,8 +2919,10 @@ function get_default_plugin_settings() {
 class SimpleSearchHZ extends siyuan.Plugin {
     get_ele(selector) {
         if (this.page && !document.body.contains(this.page)) {
-            // 搜索页签/弹窗已关闭: 清理页面临时状态
+            // 搜索页签/弹窗已关闭: 解除该页监听并清理页面临时状态
+            const closed_page = this.page;
             this.page = null;
+            this.abort_page_listeners(closed_page);
             this.reset_page_state();
         }
         if (!this.page) return null;
@@ -2944,6 +2946,34 @@ class SimpleSearchHZ extends siyuan.Plugin {
             this._page_resize_observer = null;
         }
         this._page_resize_observer_page = null;
+        // 作废还在等待搜索结果的轮询
+        this._search_wait_id = (this._search_wait_id || 0) + 1;
+    }
+    // 按页面管理 DOM 监听; 页面关闭/插件禁用时解除, 其他仍打开的搜索页不受影响
+    get_page_signal(page) {
+        if (!page) return undefined;
+        if (!this._page_aborts) this._page_aborts = new Map();
+        let controller = this._page_aborts.get(page);
+        if (!controller) {
+            controller = new AbortController();
+            this._page_aborts.set(page, controller);
+        }
+        return controller.signal;
+    }
+    abort_page_listeners(page = null) {
+        if (!this._page_aborts) return;
+        if (page) {
+            const controller = this._page_aborts.get(page);
+            if (controller) {
+                controller.abort();
+                this._page_aborts.delete(page);
+            }
+            // 页面只是短暂脱离时, 重新挂回后可以再次初始化
+            page.classList?.remove('HZ-simple-search-page');
+            return;
+        }
+        for (const controller of this._page_aborts.values()) controller.abort();
+        this._page_aborts.clear();
     }
     // 页面尺寸变化(弹窗缩放/窗口缩放/分栏)时, 重新定位已打开的建议列表
     // 每次输入都确认一次, 页面短暂脱离再挂回时也能恢复监听
@@ -4251,8 +4281,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.update_assist_btn_visibility();
         // 识别摘要显示设置立即生效
         this.update_recognized_summary();
-        // 搜索面板不一定打开
-        if (this.get_search_list()) this.show_search_res();
+        // 搜索面板不一定打开; 总开关关闭时不要重新接管结果
+        if (this.g_setting.plugin_enabled !== false && this.get_search_list()) this.show_search_res();
         return true;
     }
     // 嵌入 信息显示框
@@ -4261,6 +4291,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         const criteria = this.get_ele('#criteria');
         // 思源调整搜索页结构时, 缺少挂载点就跳过辅助区域, 不能影响后续搜索
         if (!criteria) return;
+        // 已插入过(页面重新初始化)时不重复插入
+        if (this.get_ele('#simpleSearchAssistArea')) return;
         const is_show = this.g_setting.assist_sw ? "contents" : "none";
         // 适配浅吟主题的搜索框上移
         const order = window.getComputedStyle(criteria).order;
@@ -4398,6 +4430,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         const icon_parent = this.get_ele('.search__header>.block__icons');
         // 找不到工具栏就跳过按钮, 不能影响后续搜索
         if (!icon_parent) return;
+        // 已插入过(页面重新初始化)时不重复插入
+        if (this.get_ele('#simpleSearchShowSw')) return;
         // 1. 增加开关按钮
         // 关 -> 开
         const enable_sw = {
@@ -4607,6 +4641,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         const prev_ele = this.get_search_input()?.parentElement?.parentElement;
         // 搜索框结构变化时跳过历史列表, 不能影响后续搜索
         if (!prev_ele) return;
+        // 已插入过(页面重新初始化)时不重复插入
+        if (this.get_ele('#simpleSearchSuggestionBox')) return;
         prev_ele.insertAdjacentHTML('afterend', `
             <div id="simpleSearchSuggestionBox" class="HZ-search-suggestion-box b3-menu fn__none">
                 <div id="simpleSearchHistoryTopHint" class="HZ-search-list-hint HZ-search-list-hint--top" aria-hidden="true">↑ 还有 0 项</div>
@@ -4713,7 +4749,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             document.addEventListener('pointermove', on_move, true);
             document.addEventListener('pointerup', on_end, true);
             document.addEventListener('pointercancel', on_end, true);
-        }, true);
+        }, { capture: true, signal: this.get_doc_signal() });
     }
 
     // 建议列表容器定位在输入框下方
@@ -5095,6 +5131,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         //嵌入搜索历史列表
         this.insert_search_history_list();
         const inputElement = this.get_search_input();
+        // 本页输入框监听统一由 AbortController 管理
+        const page_signal = this.get_page_signal(this.page);
 
         // input事件触发搜索历史列表
         // 中文触发顺序: start -> input -> input -> end
@@ -5118,7 +5156,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             // 所以要阻止, 然后触发input, 由下面的逻辑判断是否触发原生input
             event.stopPropagation(); // 阻止传播
             this.dispatch_input()
-        }, true);
+        }, { capture: true, signal: page_signal });
         inputElement?.addEventListener('input', (event) => {
             // SQL 模式输入框高度随内容变化后, 重新定位已打开的建议列表
             if (this.is_show_history_list() || this.is_show_command_list()) {
@@ -5183,12 +5221,12 @@ class SimpleSearchHZ extends siyuan.Plugin {
             }
             // console.log('搜索历史处理input');
             this.schedule_search_history(event.target.value, inputElement);
-        }, true);
+        }, { capture: true, signal: page_signal });
 
         inputElement?.addEventListener('mousedown', () => {
             // 鼠标点回输入框: 光标位置可能变化, 立即关闭补全
             if (this.is_show_command_list()) this.hide_command_completion();
-        });
+        }, { signal: page_signal });
         // 搜索历史列表相关事件监听
         inputElement?.addEventListener('keydown', (event) => {
             const type = event.key.toLowerCase();
@@ -5293,7 +5331,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     break;
                 }
             }
-        });
+        }, { signal: page_signal });
         inputElement?.addEventListener('keyup', (event) => {
             // 左右/Home/End 移动光标后, 按新位置重新判断是否显示补全
             if (event.isComposing) return;
@@ -5301,14 +5339,14 @@ class SimpleSearchHZ extends siyuan.Plugin {
             const type = event.key.toLowerCase();
             if (type !== 'arrowleft' && type !== 'arrowright' && type !== 'home' && type !== 'end') return;
             this.update_command_completion(inputElement.value, inputElement.selectionStart, inputElement);
-        });
+        }, { signal: page_signal });
         inputElement?.addEventListener('keydown', (event) => {
             if (event.key !== 'Enter' || event.isComposing) return;
             if (event.altKey || event.ctrlKey || event.shiftKey || event.metaKey) return;
             // 建议列表打开时回车用于选择, 不算搜索
             if (this.is_show_history_list() || this.is_show_command_list()) return;
             this.count_completion_usage(inputElement.value, inputElement);
-        }, true);
+        }, { capture: true, signal: page_signal });
         // 如果有搜索历史列表, 点击其他地方, 就退出
         if (!this.search_history_click_close_listener) {
             this.search_history_click_close_listener=true;
@@ -5331,7 +5369,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     return;
                 }
                 this.cancel_search_history();
-            }, true);
+            }, { capture: true, signal: this.get_doc_signal() });
         }
     }
 
@@ -5383,7 +5421,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     setTimeout(() => this.click_res_flag = false, 3000);
                 }
             }
-        });
+        }, { signal: this.get_doc_signal() });
     }
     // 对于当前这个搜索页面来说 第一次打开搜索页面
     handle_open_search_page(detail) {
@@ -5422,7 +5460,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 const page_input = page?.querySelector('#searchInput');
                 const query = page_input?.value || this.get_search_input()?.value || '';
                 this.count_completion_usage(query, page_input);
-            }, true);
+            }, { capture: true, signal: this.get_doc_signal() });
         }
 
         // 新文档树事件
@@ -5433,12 +5471,13 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.bind_suggestion_drag_follow();
 
         // 4.全部展开/全部折叠事件
+        const page_signal_for_controls = this.get_page_signal(this.page);
         this.get_ele('#searchExpand')?.addEventListener('click', () => {
             this.get_new_search_list()?.querySelectorAll('.b3-list-item__arrow:not(.b3-list-item__arrow--open)').forEach(arrow => arrow.parentElement.click());
-        });
+        }, { signal: page_signal_for_controls });
         this.get_ele('#searchCollapse')?.addEventListener('click', () => {
             this.get_new_search_list()?.querySelectorAll('.b3-list-item__arrow--open').forEach(arrow => arrow.parentElement.click());
-        });
+        }, { signal: page_signal_for_controls });
 
         // // 监听搜索框的blur事件, 保存搜索框内容, 让下次搜索自动填充上次搜索内容, 思源会自动将k的内容填充到搜索框
         // const input_ele = detail.searchElement;
@@ -5896,6 +5935,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         const next_page = data.detail.searchElement?.closest?.(".fn__flex-column") || null;
         // 切换了搜索页(页签/弹窗)时, 上一页的临时状态不能带过来
         if (this.page && this.page !== next_page) {
+            if (!document.body.contains(this.page)) this.abort_page_listeners(this.page);
             this.reset_page_state();
         }
         this.page = next_page;
@@ -6312,7 +6352,22 @@ class SimpleSearchHZ extends siyuan.Plugin {
         if (this._on_loaded_protyle_static) this.eventBus.off("loaded-protyle-static", this._on_loaded_protyle_static);
         if (this._on_switch_protyle) this.eventBus.off("switch-protyle", this._on_switch_protyle);
     }
-    // 关闭总开关时, 移除已经插入到搜索界面里的元素
+    // 统一的 document 级监听信号; 关闭总开关/卸载时 abort
+    get_doc_signal() {
+        if (!this._doc_abort) this._doc_abort = new AbortController();
+        return this._doc_abort.signal;
+    }
+    unbind_document_listeners() {
+        if (this._doc_abort) {
+            this._doc_abort.abort();
+            this._doc_abort = null;
+        }
+        this._result_click_count_listener = false;
+        this.search_history_click_close_listener = false;
+        this.focus_file_keydown_listener = false;
+        this._suggestion_drag_listener = false;
+    }
+    // 关闭总开关/卸载时, 移除已经插入到搜索界面里的元素并解除监听
     remove_plugin_ui() {
         ['#simpleSearchShowSw',
          '#simpleSearchDisplayTreeSetting', '#simpleSearchSettingSpace',
@@ -6324,6 +6379,15 @@ class SimpleSearchHZ extends siyuan.Plugin {
         });
         document.querySelectorAll('#searchInput.HZ-search-suggestion-open')
             .forEach(ele => ele.classList.remove('HZ-search-suggestion-open'));
+        // 移除接管后的结果树, 恢复原生结果列表
+        document.querySelectorAll('#HZsimpleSearchList').forEach(ele => ele.remove());
+        document.querySelectorAll('#searchList.fn__none').forEach(ele => ele.classList.remove('fn__none'));
+        // 去掉页面初始化标记, 重新启用后可以再次初始化
+        document.querySelectorAll('.HZ-simple-search-page').forEach(ele => ele.classList.remove('HZ-simple-search-page'));
+        this.unbind_document_listeners();
+        this.abort_page_listeners();
+        this.reset_page_state();
+        this.page = null;
         this.clear_highlight();
     }
     sy_event_init() {
@@ -6422,6 +6486,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         if (window.siyuan.isPublish) return;
         this.uninit_css_style();
         this.sy_event_uninit()
+        // 卸载时移除插入的界面、页面标记和 DOM 监听
+        this.remove_plugin_ui();
         // 立即落盘使用次数, 避免防抖计时器未触发
         clearTimeout(this._completion_usage_save_timer);
         if (this._completion_usage_loaded || this._completion_usage_dirty) {
