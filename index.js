@@ -5557,8 +5557,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
     get_analysis_result_html(help) {
         const handle_arr = function(arr, def, sep=',') {
             if (!arr.length) return def;
-            // return `(${arr.join(`)${sep}(`)})`;
-            return `<span class="fn__code">${arr.join(`</span>${sep}<span class="fn__code">`)}</span>`;
+            // 关键词/排除词可能来自用户输入, 必须转义后再拼接
+            return `<span class="fn__code">${arr.map(escapeHtml).join(`</span>${sep}<span class="fn__code">`)}</span>`;
         }
         const typeMap = {
             "-w": "关键字搜索",
@@ -5566,24 +5566,24 @@ class SimpleSearchHZ extends siyuan.Plugin {
             "-s": "sql语句",
             "-r": "正则表达式",
         }
-        const type = typeMap[help.type] ? `${this.code(help.type)}${typeMap[help.type]}` : "识别错误"
+        const type = typeMap[help.type] ? `${this.code(escapeHtml(help.type))}${typeMap[help.type]}` : "识别错误"
         let group_file = help.group_file ? `(文档模式, 在符合条件的文档下进行搜索)` : "";
         let separator = help.group_file ? `|` : "&";
         let keywords = handle_arr(help.keywords, '未识别', separator);
         let excluded = handle_arr(help.excluded, '空', '&');
         let custom_time = "全部";
         if (help.custom_time.length) {
-            custom_time = ` [${help.custom_time.join('] and [')}]`
+            custom_time = ` [${escapeHtml(help.custom_time.join('] and ['))}]`
         }
         let custom_path = "";
         if (help.path) {
             help.custom_path.unshift(help.path);
         }
         if (help.custom_path.length) {
-            custom_path += ` and [${help.custom_path.join('] and [')}]`
+            custom_path += ` and [${escapeHtml(help.custom_path.join('] and ['))}]`
         }
         if (help.excludedPath.length) {
-            custom_path += ` and ![${help.excludedPath.join('] and ![')}]`
+            custom_path += ` and ![${escapeHtml(help.excludedPath.join('] and !['))}]`
         }
         custom_path = custom_path ? custom_path.slice(5) : "全部"
         let block_type = "";
@@ -5593,7 +5593,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 || (key === 's' ? '-S'
                     : (key.length > 1 && !/^h[1-6]+$/.test(key)) ? '--' + key
                     : '-' + key);
-            block_type += `[${this.code(escapeHtml(cmd))}${val}],`;
+            block_type += `[${this.code(escapeHtml(cmd))}${escapeHtml(String(val))}],`;
         });
         block_type = block_type ? block_type.slice(0, -1) : "未识别";
         const errors = (help.errors && help.errors.length)
@@ -5607,9 +5607,9 @@ class SimpleSearchHZ extends siyuan.Plugin {
         <tr><td>类型过滤:</td><td colspan="3">${block_type}</td></tr>
         <tr><td>路径过滤:</td><td colspan="3">${custom_path}</td></tr>
         <tr><td>时间过滤:</td><td colspan="3">${custom_time}</td></tr>
-        <tr><td>分组排序:</td><td colspan="3">${help.group_desc || "—"} | ${help.sort}</td></tr>
+        <tr><td>分组排序:</td><td colspan="3">${escapeHtml(String(help.group_desc || "—"))} | ${escapeHtml(String(help.sort ?? ""))}</td></tr>
         ${errors}
-        <tr><td style="min-width:70px;">转换结果:</td><td colspan="3">${this.code(help.ret_str)}</td></tr>
+        <tr><td style="min-width:70px;">转换结果:</td><td colspan="3">${this.code(escapeHtml(String(help.ret_str ?? "")))}</td></tr>
         </tbody></table>`
     }
     // 显示解析结果
