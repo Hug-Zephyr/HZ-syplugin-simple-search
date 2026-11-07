@@ -358,14 +358,21 @@ test('排序: 单字符和 kv 多值', () => {
 });
 
 test('排除关键词和文档模式', () => {
-    const excluded = parse('!草稿');
-    assert.equal(excluded.type, '-q');
+    // 只有排除词: 思源查询语法不支持 NOT 开头, 改走 SQL
+    const excluded = parse('!草稿', { types: { paragraph: true } });
+    assert.equal(excluded.type, '-s');
     assert.deepEqual(excluded.help.excluded, ['草稿']);
-    assert.match(excluded.val, /NOT 草稿/);
+    assert.match(excluded.val, /content not like '%草稿%'/);
+    assert.equal(excluded.val.includes('NOT 草稿'), false);
+    // 沿用页面类型过滤
+    assert.match(excluded.val, /type in \('p'\)/);
 
+    // 有关键词 + 排除词: 仍走查询语法
     const both = parse('!草稿 关键词');
+    assert.equal(both.type, '-q');
     assert.deepEqual(both.keywords, ['关键词']);
     assert.deepEqual(both.help.excluded, ['草稿']);
+    assert.match(both.val, /关键词 NOT 草稿/);
 
     const doc_mode = parse('||');
     assert.equal(doc_mode.help.group_file, true);

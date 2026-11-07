@@ -2666,7 +2666,13 @@ function search_translator(arg) {
             return _buildSqlSearchQuery(options, keywords, excludedKeywords, pageSearchPath);
         }
         else if (excludedKeywords.length) {
-            // 只有排除词, 使用思源提供的查询语法
+            if (!keywords.length) {
+                // 只有排除词: 思源查询语法不支持以 NOT 开头(FTS5 语法), 会返回 0 条;
+                // 改用 SQL 拼接排除条件, 同时沿用页面上的类型/路径过滤
+                mylog('type: sql语句(仅排除词)');
+                return _buildSqlSearchQuery();
+            }
+            // 有关键词 + 排除词, 使用思源提供的查询语法
             mylog('type: 查询语法');
             return _buildExcludeQuery(keywords, excludedKeywords);
         }
