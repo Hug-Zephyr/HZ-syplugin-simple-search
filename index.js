@@ -3011,10 +3011,15 @@ class SimpleSearchHZ extends siyuan.Plugin {
         if (input) input.classList.toggle('HZ-search-suggestion-open', !!open);
     }
     is_show_history_list() {
-        return this.suggestion_mode === 'history' && !this.get_suggestion_box()?.classList.contains('fn__none');
+        if (this.suggestion_mode !== 'history') return false;
+        const box = this.get_suggestion_box();
+        // 元素不存在(页面重绘/界面被移除)时不能当成"正在显示"
+        return !!box && !box.classList.contains('fn__none');
     }
     is_show_command_list() {
-        return this.suggestion_mode === 'command' && !this.get_suggestion_box()?.classList.contains('fn__none');
+        if (this.suggestion_mode !== 'command') return false;
+        const box = this.get_suggestion_box();
+        return !!box && !box.classList.contains('fn__none');
     }
     // 当前搜索页的建议列表手动状态: history/command 分别为 null|'show'|'hide'
     get_page_suggestion_state(input = this.get_search_input()) {
