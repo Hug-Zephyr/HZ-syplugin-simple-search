@@ -5914,23 +5914,34 @@ class SimpleSearchHZ extends siyuan.Plugin {
     }
     // 搜索结束后触发
     search_completed_callback(){
-        // 这里利用了一个特性, 搜索事件触发之后, search_list会重置为新的元素
-        // 所以可以通过给第一个孩子打标记来判断搜索结束
-        // 一直等到 新的元素(第一个孩子没有标记) 出现后, 触发
+        // 思源每次渲染搜索结果都会整体替换 #searchList 的内容,
+        // 因此以"发起搜索时的首节点"为基准: 首节点变化才说明新结果已渲染。
+        // 不依赖上一次回调打的标记, 即使某次渲染没走完成回调, 也不会污染下一次搜索。
         // 每次搜索递增代际, 让上一次的轮询自动作废, 避免快速输入时叠加多个轮询
         const wait_id = this._search_wait_id = (this._search_wait_id || 0) + 1;
+        // 本次搜索所属页面: 轮询期间切换搜索页后不再处理这次结果
+        const page = this.page;
+        const get_first = () => page?.querySelector('#searchList > :first-child') || null;
+        const prev_first = get_first();
         whenExist(function() {
-            return this.get_ele(`#searchList>:first-child:not(.simple-search-list-item)`);
+            if (this.page !== page || !page?.isConnected) return null;
+            const first = get_first();
+            return first && first !== prev_first ? first : null;
         }.bind(this), function(ele) {
-            // 搜到没有打标记的元素, 说明已经搜索结束, 直接给新元素打上标记
             ele.classList.add('simple-search-list-item');
-            // 禁用回车创建文档
-            if (this.g_setting.forbid_enter_create !== false) {
-                this.forbid_enter_create_file(ele);
+            try {
+                // 禁用回车创建文档
+                if (this.g_setting.forbid_enter_create !== false) {
+                    this.forbid_enter_create_file(ele);
+                }
+                // 处理文档树显示
+                this.show_search_res();
+            } catch (e) {
+                mylog_error("处理搜索完成回调失败", e);
+            } finally {
+                // 无论后续处理是否出错, 都要复位搜索状态
+                this.finish_search_wait();
             }
-            // 处理文档树显示
-            this.show_search_res();
-            this.finish_search_wait();
         }.bind(this), 4000, () => wait_id !== this._search_wait_id).then((found) => {
             // 超时没等到结果: 回调不会执行, 这里补一次复位, 否则历史记录自动显示会一直停摆;
             // 被新搜索取消时 wait_id 已经变化, 不能动新搜索的 is_searching
