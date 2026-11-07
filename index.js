@@ -2253,12 +2253,15 @@ function search_translator(arg) {
 
     // [构造搜索语句] 查询语法
     const _buildExcludeQuery = function() {
+        // 这里的词来自普通输入, 按字面量处理; 双引号包裹可避免 : ( ) * - 等
+        // 被 FTS5 查询语法解释; 内部的 " 用 "" 转义
+        const quote = (word) => `"${String(word).replace(/"/g, '""')}"`;
         let querySyntax = "-q";
         for (let word of keywords) {
-            querySyntax += " " + word;
+            querySyntax += " " + quote(word);
         }
         for (let word of excludedKeywords) {
-            querySyntax += " NOT " + word;
+            querySyntax += " NOT " + quote(word);
         }
         return querySyntax;
     }

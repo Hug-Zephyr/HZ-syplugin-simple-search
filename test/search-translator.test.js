@@ -367,15 +367,25 @@ test('排除关键词和文档模式', () => {
     // 沿用页面类型过滤
     assert.match(excluded.val, /type in \('p'\)/);
 
-    // 有关键词 + 排除词: 仍走查询语法
+    // 有关键词 + 排除词: 仍走查询语法, 关键词按字面量加引号
     const both = parse('!草稿 关键词');
     assert.equal(both.type, '-q');
     assert.deepEqual(both.keywords, ['关键词']);
     assert.deepEqual(both.help.excluded, ['草稿']);
-    assert.match(both.val, /关键词 NOT 草稿/);
+    assert.equal(both.val.trim(), '"关键词" NOT "草稿"');
 
     const doc_mode = parse('||');
     assert.equal(doc_mode.help.group_file, true);
+});
+
+test('排除关键词: 查询语法中的特殊字符按字面量处理', () => {
+    const r = parse('a:b !草稿');
+    assert.equal(r.type, '-q');
+    assert.equal(r.val.trim(), '"a:b" NOT "草稿"');
+
+    // 关键词内部的双引号用 "" 转义
+    const quotes = parse('he "x" !草稿');
+    assert.equal(quotes.val.trim(), '"he" """x""" NOT "草稿"');
 });
 
 test('类型过滤: 未指定时使用页面配置的类型', () => {
