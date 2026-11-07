@@ -2837,7 +2837,8 @@ function matchHistory(input, history, is_all=false, prefix_only=false) {
     const cleanHistory = [...new Set(history)].filter(record => record && record.trim());
 
     if (!input || !input.trim()) {
-        if (is_all) return cleanHistory;
+        // 空输入时手动打开历史: 历史原文可能含 HTML, 统一转义后再交给列表渲染
+        if (is_all) return cleanHistory.map(escapeHtml);
         else return [];
     }
     if (!history || history.length === 0) {

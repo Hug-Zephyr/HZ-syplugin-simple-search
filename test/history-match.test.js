@@ -61,3 +61,11 @@ test('历史匹配: 手动全部模式不受前缀过滤影响', () => {
     assert.ok(labels_all.includes('中X国'));
     assert.ok(labels_all.includes('美国中国'));
 });
+
+test('历史匹配: 空输入手动打开时转义 HTML', () => {
+    const result = Array.from(matchHistory('', ['<img src=x onerror=alert(1)>', 'a < b & c'], true));
+    assert.deepEqual(result, [
+        '&lt;img src=x onerror=alert(1)&gt;',
+        'a &lt; b &amp; c',
+    ]);
+});
