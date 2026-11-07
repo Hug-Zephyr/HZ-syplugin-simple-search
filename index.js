@@ -1882,9 +1882,15 @@ function search_translator(arg) {
             help.block_type[token] = levels ? `${[...new Set(levels.split(''))].join(',')}级标题` : '标题';
         } else if (item.kind === 'todo') {
             options += item.done ? 'O' : 'o';
+            // 待办的实际块类型是列表项(i), 类型排序要用真实类型
+            if (!type_order.includes('i')) type_order.push('i');
             help.block_type[item.done ? 'O' : 'o'] = blockHelpMap[item.done ? 'O' : 'o'];
         } else if (item.kind === 'link') {
             options += 'L';
+            // 带链接的块会展开成标题/段落/表格, 类型排序要用真实类型
+            ['h', 'p', 't'].forEach(code => {
+                if (!type_order.includes(code)) type_order.push(code);
+            });
             help.block_type['L'] = blockHelpMap['L'];
         }
     };
@@ -2344,7 +2350,8 @@ function search_translator(arg) {
             },
             // 搜索待办的sql语句
             "[oO]": (types) => {
-                effective_types.push('t');
+                // 待办的块类型是列表项(i), 不是表格(t)
+                effective_types.push('i');
                 let todoCondition = "";
                 if (types.includes('o')) {
                     help.block_type['o'] = "未完成的待办项";

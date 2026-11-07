@@ -627,6 +627,26 @@ test('类型排序: 只列出实际会出现的类型', () => {
     assert.match(unknown.val, /when 'tb' then 24/);
 });
 
+test('类型排序: 待办与链接按真实块类型排序', () => {
+    // 待办的块类型是列表项(i), 链接块展开为标题/段落/表格
+    const ol = parse('-oL 关键词');
+    assert.match(ol.val, /order by case type when 'i' then 0 when 'h' then 1 when 'p' then 2 when 't' then 3 end/);
+    assert.doesNotMatch(ol.val, /when 't' then 5/);
+
+    // 输入顺序决定排序: 先链接后待办时待办排最后
+    const lo = parse('-Lo 关键词');
+    assert.match(lo.val, /order by case type when 'h' then 0 when 'p' then 1 when 't' then 2 when 'i' then 3 end/);
+
+    // 显式类型只剩一种, 但待办/链接会带出其他真实类型, 不能跳过排序
+    assert.match(parse('-po 关键词').val, /order by case type when 'p' then 0 when 'i' then 1 end/);
+    assert.match(parse('-pL 关键词').val, /order by case type when 'p' then 0 when 'h' then 1 when 't' then 2 end/);
+    assert.match(parse('-oh 关键词').val, /order by case type when 'i' then 0 when 'h' then 1 end/);
+
+    // 只有一种真实类型时仍然不生成排序
+    assert.doesNotMatch(parse('-o 关键词').val, /order by case type/);
+    assert.doesNotMatch(parse('-io 关键词').val, /order by case type/);
+});
+
 test('页面子类型过滤: 标题级别和列表类型', () => {
     const h2 = parse('关键词 ct>2025', {
         types: { heading: true },
