@@ -5962,10 +5962,10 @@ class SimpleSearchHZ extends siyuan.Plugin {
             }
         });
     }
-    // 当前查询是插件翻译出的 SQL(不是用户显式写的 -s ...)
+    // 当前查询是插件翻译出的 SQL(不是用户显式写的 -s/--sql ...)
     is_implicit_sql_query() {
-        if (this.query?.type !== '-s') return false;
-        return !(this.query.help?.recognized || []).some(item => item.token === '-s');
+        // 用解析结果判断, 不要匹配指令文本: 模式指令可以是自定义的多字符形式
+        return this.query?.type === '-s' && !this.query.help?.mode_explicit;
     }
     // 搜索事件触发
     inputSearchEvent(data) {
