@@ -2908,6 +2908,7 @@ function get_default_plugin_settings() {
         plugin_enabled    : true,           // 插件总开关
         log_level         : 'info',         // 日志等级: off/error/warn/info/debug
         assist_sw         : true,           // 辅助信息显示框 是否显示
+        btn_follow_assist : false,          // 隐藏辅助信息框时, 简搜设置/指令手册按钮是否一起隐藏
         show_recognized   : true,           // 搜索页顶部是否显示“简搜已识别”摘要
         btn_show_help     : true,           // 搜索页顶部是否显示指令手册按钮
         btn_show_setting  : true,           // 搜索页顶部是否显示简搜设置按钮
@@ -3398,8 +3399,9 @@ class SimpleSearchHZ extends siyuan.Plugin {
                         {value: 'debug', label: '调试 (debug)'},
                     ])}
                     ${row_textarea('ignored_inputs', '阻止搜索的特殊输入', '当输入框内容完全匹配以下任一值时, 阻止搜索(多个值用英文逗号分隔)', (g_setting.ignored_inputs || []).join(", "))}
-                    ${row_switch('btn_show_help', '显示“指令手册”按钮', '辅助区域显示时, 在搜索页顶部显示帮助按钮, 点击后在辅助信息框里查看指令速查手册')}
-                    ${row_switch('btn_show_setting', '显示“简搜设置”按钮', '辅助区域显示时, 在搜索页顶部“指令手册”按钮的左侧显示设置按钮')}
+                    ${row_switch('btn_follow_assist', '顶部按钮跟随辅助区域', '开启后: 隐藏辅助信息框时, “指令手册”和“简搜设置”按钮一起隐藏<br>关闭后: 两个按钮只由各自的显示开关控制, 辅助区域隐藏时仍显示')}
+                    ${row_switch('btn_show_help', '显示“指令手册”按钮', '开启后显示帮助按钮, 点击后在辅助信息框里查看指令速查手册; 是否跟随辅助区域隐藏由「顶部按钮跟随辅助区域」控制')}
+                    ${row_switch('btn_show_setting', '显示“简搜设置”按钮', '开启后显示设置按钮(在“指令手册”按钮左侧); 是否跟随辅助区域隐藏由「顶部按钮跟随辅助区域」控制')}
                     ${row_switch('show_recognized', '显示“简搜已识别”摘要', '在搜索页顶部工具栏显示被插件识别并消费的指令 token, 悬浮可查看含义; 关闭后不显示; 辅助区域隐藏时也不显示')}
                 </div>
                 <div class="simpleSearchSettingPane" data-pane="history">
@@ -4187,7 +4189,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 else if (ele.tagName === 'TEXTAREA') ele.value = Array.isArray(val) ? val.join(', ') : (val ?? '');
                 else ele.value = val ?? '';
             });
-            update_history_prefix_only_disabled();
+            update_setting_dependencies();
             render_command_editor(JSON.parse(JSON.stringify(defaults.command_config)));
             if (completion_sort_ele) completion_sort_ele.value = defaults.completion_sort || 'config';
             render_completion_order(defaults.completion_order || [], defaults.completion_hidden || [], defaults.command_config);
@@ -4340,8 +4342,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         } else {
             this.sy_event_init();
         }
-        // 按钮显示设置立即生效(搜索页已打开时)
-        this.update_assist_btn_visibility();
+        // 辅助区域显隐/眼睛图标/按钮显示立即生效(重置所有会改变 assist_sw)
+        this.apply_assist_sw_ui();
         // 识别摘要显示设置立即生效
         this.update_recognized_summary();
         // 搜索面板不一定打开; 总开关关闭时不要重新接管结果
@@ -4496,19 +4498,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // 已插入过(页面重新初始化)时不重复插入
         if (this.get_ele('#simpleSearchShowSw')) return;
         // 1. 增加开关按钮
-        // 关 -> 开
-        const enable_sw = {
-            icon: "#iconEye",
-            label: "简搜: 点击显示辅助信息框",
-            display: "none",
-        }
-        // 开 -> 关
-        const disable_sw = {
-            icon: "#iconEyeoff",
-            label: "简搜: 点击隐藏辅助信息框",
-            display: "contents",
-        }
-        const sw = this.g_setting.assist_sw ? disable_sw : enable_sw;
+        const sw = this.get_assist_sw_style(this.g_setting.assist_sw);
         icon_parent.insertAdjacentHTML('beforeend', `
             <span class="fn__space"></span>
             <span id="simpleSearchShowSw" aria-label="${sw.label}" class="block__icon block__icon--show ariaLabel" data-position="9south">
@@ -4527,7 +4517,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             this.g_setting.assist_sw = !this.g_setting.assist_sw;
             this.save_plugin_setting();
             // 按照新的开关, 重新设置样式
-            const sw = this.g_setting.assist_sw ? disable_sw : enable_sw;
+            const sw = this.get_assist_sw_style(this.g_setting.assist_sw);
             sw_ele.setAttribute('aria-label', sw.label);
             use_ele?.setAttribute('xlink:href', sw.icon);
             assist_area.style.display = sw.display;
@@ -4560,7 +4550,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         help_ele?.addEventListener('click', () => {
             if (!text_area) return;
             text_area.innerHTML = this.get_help_info_html();
-            if (!this.g_setting.assist_sw) {
+            // 开关状态与实际显示不一致时也补一次显示, 避免内容写进隐藏区域
+            if (!this.g_setting.assist_sw || assist_area?.style.display === 'none') {
                 sw_ele?.click();
             }
         });
@@ -4570,13 +4561,33 @@ class SimpleSearchHZ extends siyuan.Plugin {
     }
     // 顶部按钮的显示与隐藏(由设置控制, 显示/隐藏按钮本身始终显示)
     update_assist_btn_visibility() {
+        // 未开启“跟随辅助区域”时, 两个按钮只由各自的显示开关控制
+        const assist_ok = this.g_setting.assist_sw || !this.g_setting.btn_follow_assist;
         [
-            ['#simpleSearchSettingSpace', '#simpleSearchDisplayTreeSetting', this.g_setting.assist_sw && this.g_setting.btn_show_setting],
-            ['#simpleSearchHelpSpace', '#simpleSearchHelp', this.g_setting.assist_sw && this.g_setting.btn_show_help],
+            ['#simpleSearchSettingSpace', '#simpleSearchDisplayTreeSetting', assist_ok && this.g_setting.btn_show_setting],
+            ['#simpleSearchHelpSpace', '#simpleSearchHelp', assist_ok && this.g_setting.btn_show_help],
         ].forEach(([space_sel, btn_sel, show]) => {
             this.get_ele(space_sel)?.classList.toggle('fn__none', !show);
             this.get_ele(btn_sel)?.classList.toggle('fn__none', !show);
         });
+    }
+    // 辅助区域开关对应的图标/文案/display
+    get_assist_sw_style(show) {
+        return show
+            ? { icon: '#iconEyeoff', label: '简搜: 点击隐藏辅助信息框', display: 'contents' }
+            : { icon: '#iconEye',    label: '简搜: 点击显示辅助信息框', display: 'none' };
+    }
+    // 按 assist_sw 统一刷新辅助区域显隐、眼睛图标和设置/手册按钮
+    apply_assist_sw_ui() {
+        const style = this.get_assist_sw_style(!!this.g_setting.assist_sw);
+        const assist_area = this.get_ele('#simpleSearchAssistArea');
+        if (assist_area) assist_area.style.display = style.display;
+        const sw_ele = this.get_ele('#simpleSearchShowSw');
+        if (sw_ele) {
+            sw_ele.setAttribute('aria-label', style.label);
+            sw_ele.querySelector('svg>use')?.setAttribute('xlink:href', style.icon);
+        }
+        this.update_assist_btn_visibility();
     }
     // 顶部工具栏的识别摘要, 只显示被插件消费掉的指令 token
     insert_recognized_summary() {
