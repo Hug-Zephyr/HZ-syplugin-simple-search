@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const { load_plugin } = require('../test-support/load-plugin');
 
 const { api } = load_plugin();
-const { get_command_complete, get_all_command_candidates, get_default_command_config } = api;
+const { get_command_complete, get_all_command_candidates, get_default_command_config, get_completion_display_order } = api;
 
 const CFG = get_default_command_config();
 
@@ -270,4 +270,17 @@ test('指令补全: 自定义 kv key(不以 -- 开头)支持 key/值补全', () 
     const key_candidate = all.candidates.find(c => c.label === '@@type=');
     assert.ok(key_candidate);
     assert.equal(key_candidate.kind, 'key');
+});
+
+test('补全顺序预览: 设置顺序/使用次数/自定义', () => {
+    const entries = [{ key: 'a' }, { key: 'b' }, { key: 'c' }];
+    const plain = (value) => JSON.parse(JSON.stringify(value));
+
+    // 设置顺序: 用 entries 自身的配置顺序, 不额外指定 order
+    assert.deepEqual(plain(get_completion_display_order(entries, 'config')), []);
+    // 使用次数: 次数高的在前, 次数相同按配置顺序
+    assert.deepEqual(plain(get_completion_display_order(entries, 'usage', [], { a: 1, b: 5, c: 3 })), ['b', 'c', 'a']);
+    assert.deepEqual(plain(get_completion_display_order(entries, 'usage', [], {})), ['a', 'b', 'c']);
+    // 自定义: 沿用保存的顺序
+    assert.deepEqual(plain(get_completion_display_order(entries, 'custom', ['c', 'a', 'b'])), ['c', 'a', 'b']);
 });

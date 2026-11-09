@@ -25,6 +25,7 @@ function load_plugin(options = {}) {
         get_completion_entries,
         get_completion_custom_groups,
         get_completion_custom_order,
+        get_completion_display_order,
         get_completion_usage_keys,
         get_command_editor_html,
         get_command_editor_form_html,

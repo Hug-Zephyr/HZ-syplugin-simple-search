@@ -842,6 +842,21 @@ function _sort_completion_list(list, sort_ctx) {
     return result;
 }
 
+// 设置面板里补全列表的展示顺序: 设置顺序/使用次数/自定义
+function get_completion_display_order(entries, mode, order = [], usage = {}) {
+    if (mode === 'custom') return order || [];
+    // 设置顺序: entries 本身就是配置顺序, 不需要额外的 order
+    if (mode !== 'usage') return [];
+    const list = entries || [];
+    const config_rank = new Map(list.map((e, i) => [e.key, i]));
+    return [...list].sort((a, b) => {
+        const ca = _completion_usage_count(usage, a.key);
+        const cb = _completion_usage_count(usage, b.key);
+        if (ca !== cb) return cb - ca;
+        return (config_rank.get(a.key) ?? 0) - (config_rank.get(b.key) ?? 0);
+    }).map(e => e.key);
+}
+
 // 单字符列表: 空格项固定在最前面, 其余按排序方式排列
 function _sort_single_candidates(candidates, sort_ctx) {
     const spaces = candidates.filter(c => c.kind === 'space');
@@ -3431,7 +3446,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                             <div class="b3-label__text">
                                 按“单字符 / 多字符与 kv key / 各 kv key 的值”分组展示；kv key 和多字符放在同一组，可一起调整顺序，每个 key 的值单独成组。<br>
                                 开关只在“自定义”排序下影响补全菜单，不影响解析和搜索。<br>
-                                使用次数按实际搜索/点击结果统计；非“自定义”排序或补全整体关闭时此列表置灰。
+                                使用次数按实际搜索/点击结果统计；切换排序方式时，此列表按对应顺序预览；非“自定义”排序或补全整体关闭时此列表置灰。
                             </div>
                         </div>
                         <button class="b3-button b3-button--outline b3-button--small" id="simpleSearchClearCompletionUsage">清空使用次数</button>
@@ -3842,12 +3857,14 @@ class SimpleSearchHZ extends siyuan.Plugin {
             completion_order_ele.classList.toggle('ss-completion-order--disabled', disabled);
             completion_order_ele.querySelectorAll('.ss-completion-order-switch').forEach(sw => sw.disabled = disabled);
         };
-        const render_completion_order = (order, hidden, cfg) => {
+        const render_completion_order = (order, hidden, cfg, sort_mode) => {
             if (!completion_order_ele) return;
             const entries = get_completion_entries(cfg || this.g_setting.command_config);
-            const groups = get_completion_custom_groups(entries, order);
-            const hidden_set = new Set(hidden || []);
+            const mode = sort_mode || completion_sort_ele?.value || this.g_setting.completion_sort || 'config';
             const usage = this.completion_usage || {};
+            const display_order = get_completion_display_order(entries, mode, order, usage);
+            const groups = get_completion_custom_groups(entries, display_order);
+            const hidden_set = new Set(hidden || []);
             const row_html = (e) => `
                 <div class="ss-completion-order-row" data-order-key="${escapeHtml(e.key)}">
                     <span class="ss-completion-order-drag" aria-hidden="true">⠿</span>
@@ -3855,7 +3872,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                         <span class="ss-completion-order-label">${escapeHtml(e.label)}</span>
                         <span class="ss-completion-order-tag">${escapeHtml(e.tag || e.group || '')}</span>
                     </div>
-                    <span class="ss-completion-order-count">${usage[e.key] || 0} 次</span>
+                    <span class="ss-completion-order-count">${_completion_usage_count(usage, e.key)} 次</span>
                     <input class="b3-switch ss-completion-order-switch" type="checkbox" ${hidden_set.has(e.key) ? '' : 'checked'}>
                 </div>`;
             completion_order_ele.innerHTML = groups.map(group => `
@@ -3872,12 +3889,32 @@ class SimpleSearchHZ extends siyuan.Plugin {
             update_completion_order_disabled();
         };
         render_completion_order(this.g_setting.completion_order || [], this.g_setting.completion_hidden || []);
-        completion_sort_ele?.addEventListener('change', update_completion_order_disabled);
+        // 切换排序方式时按新方式重新排列下方列表; 离开自定义模式前先记下用户拖动的结果
+        let pending_custom_order = null;
+        let pending_custom_hidden = null;
+        let last_sort_mode = completion_sort_ele?.value || this.g_setting.completion_sort || 'config';
+        const capture_custom_order_from_dom = () => {
+            if (!completion_order_ele) return;
+            const rows = [...completion_order_ele.querySelectorAll('.ss-completion-order-row')];
+            pending_custom_order = rows.map(row => row.dataset.orderKey);
+            pending_custom_hidden = rows.filter(row => {
+                const sw = row.querySelector('.ss-completion-order-switch');
+                return sw && !sw.checked;
+            }).map(row => row.dataset.orderKey);
+        };
+        completion_sort_ele?.addEventListener('change', () => {
+            if (last_sort_mode === 'custom') capture_custom_order_from_dom();
+            last_sort_mode = completion_sort_ele.value;
+            const order = pending_custom_order || this.g_setting.completion_order || [];
+            const hidden = pending_custom_hidden || this.g_setting.completion_hidden || [];
+            render_completion_order(order, hidden, this.g_setting.command_config, completion_sort_ele.value);
+        });
         dialog.element.querySelector('#simpleSearchClearCompletionUsage')?.addEventListener('click', () => {
             this.clear_completion_usage();
-            completion_order_ele?.querySelectorAll('.ss-completion-order-count').forEach(ele => {
-                ele.textContent = '0 次';
-            });
+            // 使用次数清零后, “按使用次数”的列表顺序也要回到配置顺序
+            const order = pending_custom_order || this.g_setting.completion_order || [];
+            const hidden = pending_custom_hidden || this.g_setting.completion_hidden || [];
+            render_completion_order(order, hidden, this.g_setting.command_config, completion_sort_ele?.value);
         });
 
         // 自定义顺序拖动
@@ -4202,12 +4239,24 @@ class SimpleSearchHZ extends siyuan.Plugin {
             }
             // 自定义顺序/隐藏项
             if (completion_order_ele && completion_order_json && completion_hidden_json) {
-                const rows = [...completion_order_ele.querySelectorAll('.ss-completion-order-row')];
-                completion_order_json.value = JSON.stringify(rows.map(row => row.dataset.orderKey));
-                completion_hidden_json.value = JSON.stringify(rows.filter(row => {
-                    const sw = row.querySelector('.ss-completion-order-switch');
-                    return sw && !sw.checked;
-                }).map(row => row.dataset.orderKey));
+                const mode = completion_sort_ele?.value || this.g_setting.completion_sort || 'config';
+                if (mode === 'custom') {
+                    // 自定义模式下, 列表的 DOM 顺序就是用户编辑的结果
+                    const rows = [...completion_order_ele.querySelectorAll('.ss-completion-order-row')];
+                    completion_order_json.value = JSON.stringify(rows.map(row => row.dataset.orderKey));
+                    completion_hidden_json.value = JSON.stringify(rows.filter(row => {
+                        const sw = row.querySelector('.ss-completion-order-switch');
+                        return sw && !sw.checked;
+                    }).map(row => row.dataset.orderKey));
+                } else {
+                    // 其他排序下列表只是按该排序预览, 不能覆盖已保存的自定义顺序;
+                    // 期间切换过排序时, 用切换前记下的拖动结果
+                    const defaults = reset_all ? get_default_plugin_settings() : null;
+                    const order = defaults ? defaults.completion_order : (pending_custom_order || this.g_setting.completion_order);
+                    const hidden = defaults ? defaults.completion_hidden : (pending_custom_hidden || this.g_setting.completion_hidden);
+                    completion_order_json.value = JSON.stringify(order || []);
+                    completion_hidden_json.value = JSON.stringify(hidden || []);
+                }
             }
             return this.apply_setting_from_dialog(dialog.element, reset_all) !== false;
         };
@@ -5010,11 +5059,16 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.command_completion = result;
         this.history_previewing = false;
         this.history_typed_value = input.value;
+        const usage = this.completion_usage || {};
         result.candidates.forEach((c, i) => {
             const name = c.name ? `<span class="HZ-search-command-name">${escapeHtml(c.name)}</span>` : '';
             const hint = c.hint ? `<span class="HZ-search-command-hint">${escapeHtml(c.hint)}</span>` : '';
+            // 右侧显示该补全形式的使用次数(空格项没有 key, 不显示)
+            const count_html = c.sort_key
+                ? `<span class="b3-list-item__meta HZ-search-command-count">${_completion_usage_count(usage, c.sort_key)} 次</span>`
+                : '';
             const title = [c.label, c.name, c.hint].filter(Boolean).join(' ');
-            history_ul.insertAdjacentHTML('beforeend', `<li class="HZ-search-command-li b3-list-item" data-index="${i}" title="${escapeHtml(title)}"><span class="b3-list-item__text"><span class="HZ-search-command-token">${escapeHtml(c.label)}</span>${name}${hint}</span></li>`);
+            history_ul.insertAdjacentHTML('beforeend', `<li class="HZ-search-command-li b3-list-item" data-index="${i}" title="${escapeHtml(title)}"><span class="b3-list-item__text"><span class="HZ-search-command-token">${escapeHtml(c.label)}</span>${name}${hint}</span>${count_html}</li>`);
         });
         this.set_suggestion_open(true);
         this.position_suggestion_box();

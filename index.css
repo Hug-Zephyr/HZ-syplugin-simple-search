@@ -129,6 +129,12 @@
         margin-left: 8px;
         opacity: 0.55;
     }
+    /* 右侧使用次数 */
+    .HZ-search-command-count {
+        margin-left: 12px;
+        opacity: 0.55;
+        flex-shrink: 0;
+    }
 }
 
 #simpleSearchHistoryList::-webkit-scrollbar {
