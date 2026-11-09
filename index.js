@@ -244,6 +244,9 @@ const SYT = {
 // single: content 是单个字符, 解析时自动补 '-'
 // multi:  content 是完整 token, 原样使用
 // kv:     key 是前缀, value 是拼在后面的值(可为空, 表示由用户输入)
+// 配置版本使用插件版本号(与 plugin.json 的 version 一致, 测试会校验):
+// 发版后版本号变化即触发一次默认配置合并, 不需要单独维护自增版本
+const PLUGIN_VERSION = '1.3.7';
 function get_default_command_config() {
     const type_item = (id, name, code, comms) => ({ id, name, kind: 'type', code, comms });
     const new_type = (code, name) => ({
@@ -263,7 +266,7 @@ function get_default_command_config() {
         return item;
     };
     return {
-        version: 1,
+        version: PLUGIN_VERSION,
         categories: [
             {
                 id: 'mode', name: '搜索方式', icon: '🔍',
@@ -374,6 +377,100 @@ function get_allowed_command_forms(item) {
 
 function is_command_form_allowed(item, form) {
     return get_allowed_command_forms(item).includes(form);
+}
+
+// 比较 1.3.7 形式的版本号: a > b 返回 1, a < b 返回 -1, 相同返回 0
+function compare_version(a, b) {
+    const pa = String(a || '0').split('.').map(n => parseInt(n, 10) || 0);
+    const pb = String(b || '0').split('.').map(n => parseInt(n, 10) || 0);
+    const len = Math.max(pa.length, pb.length);
+    for (let i = 0; i < len; i++) {
+        const x = pa[i] || 0;
+        const y = pb[i] || 0;
+        if (x !== y) return x > y ? 1 : -1;
+    }
+    return 0;
+}
+
+function command_form_signature(c) {
+    if (!c) return '';
+    if (c.form === 'single') return typeof c.content === 'string' ? 's:' + c.content : '';
+    if (c.form === 'multi') return c.content ? 'm:' + c.content : '';
+    if (c.form === 'kv') return c.key ? 'k:' + JSON.stringify([c.key, c.value || '']) : '';
+    return '';
+}
+
+function add_command_form_signatures(set, item) {
+    if (!item || item.enabled === false) return;
+    for (const c of (item.comms || [])) {
+        if (!c) continue;
+        if (c.form === 'single' && !is_command_form_allowed(item, 'single')) continue;
+        if (c.form === 'kv' && !is_command_form_allowed(item, 'kv')) continue;
+        const sig = command_form_signature(c);
+        if (sig) set.add(sig);
+    }
+}
+
+// 收集启用项的指令形式签名, 合并时用来避免出现重复指令
+function collect_command_form_signatures(cfg) {
+    const set = new Set();
+    for (const cat of ((cfg && cfg.categories) || [])) {
+        for (const item of ((cat && cat.items) || [])) {
+            add_command_form_signatures(set, item);
+        }
+    }
+    return set;
+}
+
+function command_item_conflicts(item, used) {
+    if (!item || item.enabled === false) return false;
+    for (const c of (item.comms || [])) {
+        if (!c) continue;
+        if (c.form === 'single' && !is_command_form_allowed(item, 'single')) continue;
+        if (c.form === 'kv' && !is_command_form_allowed(item, 'kv')) continue;
+        const sig = command_form_signature(c);
+        if (sig && used.has(sig)) return true;
+    }
+    return false;
+}
+
+// 插件版本变化时, 把默认配置里新增的分类/项补进用户配置;
+// 已有项完全保留用户的顺序/开关/名称/自定义形式, 冲突项跳过
+function migrate_command_config(stored) {
+    const defaults = get_default_command_config();
+    if (!stored || !Array.isArray(stored.categories)) return defaults;
+    // 同版本或更高版本(比如降级插件)不处理
+    if (compare_version(stored.version, defaults.version) >= 0) return stored;
+    let cfg;
+    try {
+        cfg = JSON.parse(JSON.stringify(stored));
+    } catch (e) {
+        return defaults;
+    }
+    const used = collect_command_form_signatures(cfg);
+    for (const def_cat of defaults.categories) {
+        let cat = cfg.categories.find(c => c && c.id === def_cat.id);
+        if (!cat) {
+            cat = JSON.parse(JSON.stringify(def_cat));
+            cat.items = [];
+            cfg.categories.push(cat);
+        }
+        if (!Array.isArray(cat.items)) cat.items = [];
+        const ids = new Set(cat.items.map(i => i && i.id).filter(Boolean));
+        for (const def_item of (def_cat.items || [])) {
+            if (!def_item || ids.has(def_item.id)) continue;
+            const item = JSON.parse(JSON.stringify(def_item));
+            if (command_item_conflicts(item, used)) {
+                mylog_warn('指令配置合并跳过冲突项', def_cat.id, def_item.id);
+                continue;
+            }
+            cat.items.push(item);
+            add_command_form_signatures(used, item);
+            ids.add(def_item.id);
+        }
+    }
+    cfg.version = defaults.version;
+    return cfg;
 }
 
 // 一个指令项在帮助/解析面板中的展示形式
@@ -6617,9 +6714,15 @@ class SimpleSearchHZ extends siyuan.Plugin {
             }catch(e){
                 mylog_error("og-fdb载入配置时发生错误, 使用默认配置", e);
             }
-            // 指令配置缺失或损坏时使用默认值
+            // 指令配置缺失或损坏时使用默认值; 版本变化时合并新增的默认分类/项
             if (!this.g_setting.command_config || !Array.isArray(this.g_setting.command_config.categories)) {
                 this.g_setting.command_config = get_default_command_config();
+            } else {
+                const migrated = migrate_command_config(this.g_setting.command_config);
+                if (migrated !== this.g_setting.command_config) {
+                    mylog_info('指令配置已合并新增默认项', migrated.version);
+                }
+                this.g_setting.command_config = migrated;
             }
             // 应用日志等级
             set_log_level(this.g_setting.log_level);

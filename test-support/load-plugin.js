@@ -19,6 +19,8 @@ function load_plugin(options = {}) {
         get_default_command_config,
         build_command_registry,
         validate_command_config,
+        migrate_command_config,
+        compare_version,
         get_item_display_forms,
         get_command_complete,
         get_all_command_candidates,
