@@ -211,7 +211,20 @@ const SYT = {
         return window.siyuan.storage['local-searchkeys'].keys;
     },
     delete_search_history(del_item) { // 删除某个搜索历史
-        window.siyuan.storage['local-searchkeys'].keys = window.siyuan.storage['local-searchkeys'].keys.filter(item => item != del_item);
+        const storage = window.siyuan.storage['local-searchkeys'];
+        storage.keys = storage.keys.filter(item => item != del_item);
+        // 立即写回内核存储: 原生只会在输入框失焦等时机保存, 否则退出后删掉的记录会回来
+        SYT.save_search_history_storage(storage);
+    },
+    // 把搜索历史写回内核存储(与思源 setStorageVal 的行为一致)
+    save_search_history_storage(storage = window.siyuan.storage['local-searchkeys']) {
+        if (!storage || window.siyuan.isPublish) return;
+        if (typeof fetch !== 'function') return;
+        fetch('/api/storage/setLocalStorageVal', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({key: 'local-searchkeys', val: JSON.stringify(storage)}),
+        }).catch(e => mylog_error('保存搜索历史失败', e));
     },
     get_last_search_k() { // 获取上个搜索历史
         for (const item of window.siyuan.storage['local-searchkeys'].keys) {

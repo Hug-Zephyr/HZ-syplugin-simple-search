@@ -30,6 +30,7 @@ function load_plugin(options = {}) {
         get_command_editor_html,
         get_command_editor_form_html,
         read_command_config_from_editor,
+        SYT,
     };`;
 
     const focus_doc = options.focus_doc === undefined ? 'doc123' : options.focus_doc;
@@ -77,6 +78,11 @@ function load_plugin(options = {}) {
         clearInterval,
         requestAnimationFrame: (callback) => callback && callback(),
         alert: () => {},
+        fetch(url, init) {
+            sandbox.__fetch_calls.push({ url, init });
+            return Promise.resolve({ code: 0 });
+        },
+        __fetch_calls: [],
     };
 
     vm.createContext(sandbox);
