@@ -3400,7 +3400,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     ${row_textarea('ignored_inputs', '阻止搜索的特殊输入', '当输入框内容完全匹配以下任一值时, 阻止搜索(多个值用英文逗号分隔)', (g_setting.ignored_inputs || []).join(", "))}
                     ${row_switch('btn_show_help', '显示“指令手册”按钮', '辅助区域显示时, 在搜索页顶部显示帮助按钮, 点击后在辅助信息框里查看指令速查手册')}
                     ${row_switch('btn_show_setting', '显示“简搜设置”按钮', '辅助区域显示时, 在搜索页顶部“指令手册”按钮的左侧显示设置按钮')}
-                    ${row_switch('show_recognized', '显示“简搜已识别”摘要', '在搜索页顶部工具栏显示被插件识别并消费的指令 token, 悬浮可查看含义; 关闭后不显示')}
+                    ${row_switch('show_recognized', '显示“简搜已识别”摘要', '在搜索页顶部工具栏显示被插件识别并消费的指令 token, 悬浮可查看含义; 关闭后不显示; 辅助区域隐藏时也不显示')}
                 </div>
                 <div class="simpleSearchSettingPane" data-pane="history">
                     ${row_select('history_auto', '自动显示历史记录', '输入内容时自动显示匹配到的历史记录<br>关闭: 不自动显示, 需要时用 alt+↓ 手动调出<br>智能显示: 存在可用的历史候选时显示(与输入完全相同的项不计入)<br>总是显示: 只要输入不为空就显示, 首行为当前输入', [
@@ -3409,16 +3409,16 @@ class SimpleSearchHZ extends siyuan.Plugin {
                         {value: 'always', label: '总是显示'},
                     ])}
                     ${row_switch('history_auto_prefix_only', '自动历史仅前缀匹配', '开启后: 输入时自动弹出的历史记录只保留与输入前缀匹配的记录(精确匹配也属于前缀), 过滤包含匹配和模糊匹配<br>关闭后: 保留现有的包含/模糊匹配<br>手动 Alt+↓ 打开的历史不受影响; 自动显示关闭时此项不可用')}
-                    ${row_switch('replace_history', '历史列表快捷键 (Alt+↓)', '开启后: Alt+↓ 显示/隐藏历史列表; 手动状态只在当前搜索页有效, 不会修改任何设置<br>关闭后: 不使用该快捷键')}
+                    ${row_switch('replace_history', '历史列表快捷键 (Alt+↓)', '开启后: Alt+↓ 显示/隐藏历史列表(与“自动显示历史记录”开关无关, 自动显示关闭时仍可手动调出); 手动状态只在当前搜索页有效, 不会修改任何设置<br>关闭后: 不使用该快捷键')}
                     ${row_switch('intercept_search', '拦截搜索', '开启: 历史列表显示期间暂停搜索, 结果区保持上一次的结果<br>关闭: 历史列表只作为输入框下方的建议层, 搜索照常实时执行')}
                     ${row_number('history_rows_intercept', '历史记录行数上限(拦截开启)', '拦截搜索开启, 历史列表显示期间暂停搜索时, 最多显示的行数; 0 表示只按窗口高度限制')}
                     ${row_number('history_rows_normal', '历史记录行数上限(拦截关闭)', '拦截搜索关闭, 历史列表只作建议层时, 最多显示的行数; 0 表示只按窗口高度限制')}
                 </div>
                 <div class="simpleSearchSettingPane" data-pane="completion">
-                    ${row_switch('command_complete', '指令补全', '开启后: 输入 - 时列出单字符指令, 输入 -- 时列出多字符指令和 kv key, 输入 kv key 后列出配置中的可选值<br>选择指令期间会暂停搜索; -w/-q/-s/-r 模式指令之后不补全')}
-                    ${row_switch('command_shortcut', '指令补全快捷键 (Tab)', '开启后: Tab 显示/隐藏指令补全列表, 没有补全候选时列出全部指令(回车插入); 手动状态只在当前搜索页有效, 不会修改任何设置<br>关闭后: 不使用该快捷键')}
-                    ${row_number('command_rows', '补全菜单行数上限', '指令补全列表最多显示的行数; 0 表示只按窗口高度限制')}
-                    ${row_select('completion_sort', '补全排序方式', '控制单字符、多字符、kv key 和 kv 值的补全顺序<br>设置顺序: 按指令配置的顺序<br>使用次数: 按实际搜索次数排序, 次数相同按设置顺序<br>自定义: 按下方分组列表的顺序', [
+                    ${row_switch('command_complete', '自动显示指令补全', '开启后: 输入 - 时列出单字符指令, 输入 -- 时列出多字符指令和 kv key, 输入 kv key 后列出配置中的可选值<br>关闭后: 输入时不再自动弹出, 仍可用 Tab 快捷键手动打开(需开启「指令补全快捷键 (Tab)」)<br>选择指令期间会暂停搜索; -w/-q/-s/-r 模式指令之后不补全')}
+                    ${row_switch('command_shortcut', '指令补全快捷键 (Tab)', '开启后: Tab 显示/隐藏指令补全列表(与“自动显示指令补全”开关无关, 自动弹出关闭时仍可手动调出), 没有补全候选时列出全部指令(回车插入); 手动状态只在当前搜索页有效, 不会修改任何设置<br>关闭后: 不使用该快捷键')}
+                    ${row_number('command_rows', '补全菜单行数上限', '指令补全列表最多显示的行数; 0 表示只按窗口高度限制<br>自动显示和 Tab 快捷键都关闭时不可用')}
+                    ${row_select('completion_sort', '补全排序方式', '控制单字符、多字符、kv key 和 kv 值的补全顺序<br>设置顺序: 按指令配置的顺序<br>使用次数: 按实际搜索次数排序, 次数相同按设置顺序<br>自定义: 按下方分组列表的顺序<br>自动显示和 Tab 快捷键都关闭时不可用', [
                         {value: 'config', label: '按设置顺序（默认）'},
                         {value: 'usage',  label: '按使用次数'},
                         {value: 'custom', label: '自定义'},
@@ -3429,7 +3429,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                             <div class="b3-label__text">
                                 按“单字符 / 多字符与 kv key / 各 kv key 的值”分组展示；kv key 和多字符放在同一组，可一起调整顺序，每个 key 的值单独成组。<br>
                                 开关只在“自定义”排序下影响补全菜单，不影响解析和搜索。<br>
-                                使用次数按实际搜索/点击结果统计；非“自定义”排序时此列表置灰。
+                                使用次数按实际搜索/点击结果统计；非“自定义”排序或补全整体关闭时此列表置灰。
                             </div>
                         </div>
                         <button class="b3-button b3-button--outline b3-button--small" id="simpleSearchClearCompletionUsage">清空使用次数</button>
@@ -3463,14 +3463,14 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 <div class="simpleSearchSettingPane" data-pane="search">
                     ${row_switch('forbid_enter_create', '搜索结果为空时禁用回车创建', '开启后: 搜索结果为空时, 回车不会创建新文档, 改为点击“点击创建”项创建<br>关闭后: 恢复思源原生回车创建新文档')}
                     ${row_switch('replace_search_res', '接管搜索结果', '开启后, 搜索结果将以新的样式进行显示(按文档分组时生效)')}
-                    ${row_select('restree_style', '搜索结果样式', '选择搜索结果的显示风格, 全部风格都会按照文档路径名进行排序<br><a href="https://ld246.com/article/1759408628406" target="_blank">了解更多</a>', [
+                    ${row_select('restree_style', '搜索结果样式', '选择搜索结果的显示风格, 全部风格都会按照文档路径名进行排序<br>需开启「接管搜索结果」<br><a href="https://ld246.com/article/1759408628406" target="_blank">了解更多</a>', [
                         {value: 'native_list', label: '原生列表'},
                         {value: 'native_tree', label: '原生树'},
                         {value: 'colorful',    label: '多彩树'},
                         {value: 'ediary',      label: 'eDiary树'},
                     ])}
-                    ${row_switch('search_res_top', '搜索结果优先', '开启后, 搜索结果将显示在同级分组的上面(树结构时生效)')}
-                    ${row_switch('restree_all_path', '显示全路径', '开启后, 分组的文档将显示全路径, 而不是只有文档名(树结构时生效)')}
+                    ${row_switch('search_res_top', '搜索结果优先', '开启后, 搜索结果将显示在同级分组的上面(树结构时生效, 需开启「接管搜索结果」)')}
+                    ${row_switch('restree_all_path', '显示全路径', '开启后, 分组的文档将显示全路径, 而不是只有文档名(树结构时生效, 需开启「接管搜索结果」)')}
                 </div>
                 <div class="simpleSearchSettingPane" data-pane="jump">
                     ${row_switch('is_highlight_open', '高亮关键词', '通过 双击/回车 跳转到对应位置后, 高亮搜索的关键词')}
@@ -3833,7 +3833,10 @@ class SimpleSearchHZ extends siyuan.Plugin {
         const completion_sort_ele = dialog.element.querySelector('[data-key="completion_sort"]');
         const update_completion_order_disabled = () => {
             if (!completion_order_ele || !completion_sort_ele) return;
-            const disabled = completion_sort_ele.value !== 'custom';
+            // 自动弹出和 Tab 快捷键都关闭时, 补全列表不会出现, 自定义顺序也失去意义
+            const completion_enabled = !!dialog.element.querySelector('[data-key="command_complete"]')?.checked
+                || !!dialog.element.querySelector('[data-key="command_shortcut"]')?.checked;
+            const disabled = completion_sort_ele.value !== 'custom' || !completion_enabled;
             completion_order_ele.classList.toggle('ss-completion-order--disabled', disabled);
             completion_order_ele.querySelectorAll('.ss-completion-order-switch').forEach(sw => sw.disabled = disabled);
         };
@@ -3962,18 +3965,49 @@ class SimpleSearchHZ extends siyuan.Plugin {
         const reset_all_btn = dialog.element.querySelector('#simpleSearchResetAll');
         const cancel_btn = dialog.element.querySelector('.b3-dialog__action .b3-button--cancel');
         const save_btn = dialog.element.querySelector('.b3-dialog__action .b3-button--text');
-        // “自动历史仅前缀匹配”依赖自动显示: 自动显示关闭时置灰
-        const history_auto_ele = dialog.element.querySelector('[data-key="history_auto"]');
-        const history_prefix_row = dialog.element.querySelector('[data-setting-row="history_auto_prefix_only"]');
-        const history_prefix_ele = history_prefix_row?.querySelector('[data-key="history_auto_prefix_only"]');
-        const update_history_prefix_only_disabled = () => {
-            if (!history_auto_ele || !history_prefix_ele) return;
-            const disabled = history_auto_ele.value === 'close';
-            history_prefix_ele.disabled = disabled;
-            history_prefix_row?.classList.toggle('ss-setting-row--disabled', disabled);
+        // ---- 设置项的前置依赖: 条件不满足时置灰 ----
+        const set_setting_disabled = (key, disabled) => {
+            const control = dialog.element.querySelector(`[data-key="${key}"]`);
+            const row = control?.closest('.config-item');
+            if (control) control.disabled = !!disabled;
+            row?.classList.toggle('ss-setting-row--disabled', !!disabled);
         };
-        update_history_prefix_only_disabled();
-        history_auto_ele?.addEventListener('change', update_history_prefix_only_disabled);
+        const dep_controls = {
+            history_auto: dialog.element.querySelector('[data-key="history_auto"]'),
+            replace_history: dialog.element.querySelector('[data-key="replace_history"]'),
+            intercept_search: dialog.element.querySelector('[data-key="intercept_search"]'),
+            replace_search_res: dialog.element.querySelector('[data-key="replace_search_res"]'),
+            restree_style: dialog.element.querySelector('[data-key="restree_style"]'),
+            command_complete: dialog.element.querySelector('[data-key="command_complete"]'),
+            command_shortcut: dialog.element.querySelector('[data-key="command_shortcut"]'),
+        };
+        const update_setting_dependencies = () => {
+            const history_auto = dep_controls.history_auto?.value;
+            // 仅前缀匹配只影响“自动显示”, 自动显示关闭时不可用
+            set_setting_disabled('history_auto_prefix_only', history_auto === 'close');
+            // 历史列表完全不可能出现时(自动显示关闭且快捷键也关闭), 行数上限无意义
+            const history_possible = history_auto !== 'close' || !!dep_controls.replace_history?.checked;
+            // 两个行数上限分别对应“拦截搜索”开/关
+            const intercept = !!dep_controls.intercept_search?.checked;
+            set_setting_disabled('history_rows_intercept', !history_possible || !intercept);
+            set_setting_disabled('history_rows_normal', !history_possible || intercept);
+            // 结果样式/优先/全路径只在接管搜索结果时生效; 后两项还要求树结构
+            const replace_res = !!dep_controls.replace_search_res?.checked;
+            set_setting_disabled('restree_style', !replace_res);
+            const tree = replace_res && dep_controls.restree_style?.value !== 'native_list';
+            set_setting_disabled('search_res_top', !tree);
+            set_setting_disabled('restree_all_path', !tree);
+            // 自动弹出和 Tab 快捷键都关闭时, 补全列表不会出现
+            const completion_enabled = !!dep_controls.command_complete?.checked
+                || !!dep_controls.command_shortcut?.checked;
+            set_setting_disabled('command_rows', !completion_enabled);
+            set_setting_disabled('completion_sort', !completion_enabled);
+            update_completion_order_disabled();
+        };
+        update_setting_dependencies();
+        Object.values(dep_controls).forEach(ele => {
+            if (ele) ele.addEventListener('change', update_setting_dependencies);
+        });
 
         // ---- 未保存修改: 检测和左侧标记 ----
         let allow_close = false;
@@ -6450,6 +6484,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.unbind_document_listeners();
         this.abort_page_listeners();
         this.reset_page_state();
+        // 手动 Alt+↓/Tab 的每页状态只在当前占用期间有效, 重新启用后恢复默认
+        this.page_suggestion_states = new WeakMap();
         this.page = null;
         this.clear_highlight();
     }
