@@ -2962,6 +2962,9 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this._history_suppressed_value = null;
         this.is_searching = false;
         this._search_config = null;
+        // 作废还没处理完的搜索结果等待
+        if (this._pending_render?.timer) clearTimeout(this._pending_render.timer);
+        this._pending_render = null;
         if (this._page_resize_observer) {
             this._page_resize_observer.disconnect();
             this._page_resize_observer = null;
@@ -5926,41 +5929,63 @@ class SimpleSearchHZ extends siyuan.Plugin {
     }
     // 搜索结束后触发
     search_completed_callback(){
-        // 思源每次渲染搜索结果都会整体替换 #searchList 的内容,
-        // 因此以"发起搜索时的首节点"为基准: 首节点变化才说明新结果已渲染。
-        // 不依赖上一次回调打的标记, 即使某次渲染没走完成回调, 也不会污染下一次搜索。
-        // 每次搜索递增代际, 让上一次的轮询自动作废, 避免快速输入时叠加多个轮询
+        // 思源(v3.8.2+)在每次渲染搜索结果前同步广播 before-search-results-render,
+        // 直接以该事件作为"结果已到"的信号, 不再轮询 DOM。
+        // 每次搜索递增代际, 让上一次的等待自动作废, 避免快速输入时叠加多个等待
         const wait_id = this._search_wait_id = (this._search_wait_id || 0) + 1;
-        // 本次搜索所属页面: 轮询期间切换搜索页后不再处理这次结果
+        // 本次搜索所属页面: 等待期间切换搜索页后不再处理这次结果
         const page = this.page;
         const get_first = () => page?.querySelector('#searchList > :first-child') || null;
-        const prev_first = get_first();
-        whenExist(function() {
-            if (this.page !== page || !page?.isConnected) return null;
-            const first = get_first();
-            return first && first !== prev_first ? first : null;
-        }.bind(this), function(ele) {
-            ele.classList.add('simple-search-list-item');
+        let done = false;
+        let safety_timer = 0;
+        const is_current = () => !done && wait_id === this._search_wait_id
+            && this.page === page && !!page?.isConnected;
+        const process = () => {
+            if (!is_current()) return;
+            done = true;
+            clearTimeout(safety_timer);
+            if (this._pending_render?.wait_id === wait_id) this._pending_render = null;
             try {
-                // 禁用回车创建文档
-                if (this.g_setting.forbid_enter_create !== false) {
-                    this.forbid_enter_create_file(ele);
+                const first = get_first();
+                if (first) {
+                    first.classList.add('simple-search-list-item');
+                    // 禁用回车创建文档
+                    if (this.g_setting.forbid_enter_create !== false) {
+                        this.forbid_enter_create_file(first);
+                    }
+                    // 处理文档树显示
+                    this.show_search_res();
                 }
-                // 处理文档树显示
-                this.show_search_res();
             } catch (e) {
                 mylog_error("处理搜索完成回调失败", e);
             } finally {
                 // 无论后续处理是否出错, 都要复位搜索状态
                 this.finish_search_wait();
             }
-        }.bind(this), 4000, () => wait_id !== this._search_wait_id).then((found) => {
-            // 超时没等到结果: 回调不会执行, 这里补一次复位, 否则历史记录自动显示会一直停摆;
-            // 被新搜索取消时 wait_id 已经变化, 不能动新搜索的 is_searching
-            if (!found && wait_id === this._search_wait_id) {
+        };
+        // 事件处理器通过这里取本次搜索的上下文
+        this._pending_render = { wait_id, page, process };
+        // 极端情况下渲染事件一直没来(请求异常等): 复位搜索状态, 避免历史记录自动显示一直停摆;
+        // 正常搜索只要结果渲染就会触发事件, 不会走到这里
+        safety_timer = setTimeout(() => {
+            if (!done && wait_id === this._search_wait_id) {
+                done = true;
+                if (this._pending_render?.wait_id === wait_id) this._pending_render = null;
                 this.finish_search_wait();
             }
-        });
+        }, 60000);
+        this._pending_render.timer = safety_timer;
+    }
+    // 思源在渲染搜索结果前触发(v3.8.2+): 此时数据已返回, DOM 还未更新
+    on_before_search_results_render(data) {
+        const pending = this._pending_render;
+        if (!pending) return;
+        const page = data?.detail?.searchElement?.closest?.('.fn__flex-column') || null;
+        if (page !== pending.page || pending.wait_id !== this._search_wait_id) return;
+        // 事件先于 DOM 更新, 延后一拍等 #searchList 渲染完成后再处理
+        setTimeout(() => {
+            if (pending.wait_id === this._search_wait_id) pending.process();
+        }, 0);
     }
     // 当前查询是插件翻译出的 SQL(不是用户显式写的 -s/--sql ...)
     is_implicit_sql_query() {
@@ -6388,6 +6413,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         if (this._on_input_search) this.eventBus.off("input-search", this._on_input_search);
         if (this._on_loaded_protyle_static) this.eventBus.off("loaded-protyle-static", this._on_loaded_protyle_static);
         if (this._on_switch_protyle) this.eventBus.off("switch-protyle", this._on_switch_protyle);
+        if (this._on_before_search_results_render) this.eventBus.off("before-search-results-render", this._on_before_search_results_render);
     }
     // 统一的 document 级监听信号; 关闭总开关/卸载时 abort
     get_doc_signal() {
@@ -6435,9 +6461,12 @@ class SimpleSearchHZ extends siyuan.Plugin {
             this._on_input_search = this.inputSearchEvent.bind(this);
             this._on_loaded_protyle_static = this.loadedProtyleStaticEvent.bind(this);
             this._on_switch_protyle = this.switchProtyleEvent.bind(this);
+            this._on_before_search_results_render = this.on_before_search_results_render.bind(this);
         }
         // 搜索事件触发, 执行回调后, 才会发送req进行搜索
         this.eventBus.on("input-search", this._on_input_search);
+        // 搜索结果渲染前(v3.8.2+), 用于判断结果是否已返回
+        this.eventBus.on("before-search-results-render", this._on_before_search_results_render);
         // ✅ 编辑器内容静态加载事件
         this.eventBus.on("loaded-protyle-static", this._on_loaded_protyle_static);
         // 通过搜索结果打开, 就高亮/闪烁
@@ -6492,6 +6521,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.suggestion_mode     = null;  // 建议列表模式: history / command
         this._history_suppressed_value = undefined; // 搜索期间被丢弃、待结束后补算的历史输入
         this._search_wait_id     = 0;     // 搜索结束等待的代际, 用于取消旧轮询
+        this._pending_render     = null;  // 本次搜索等待处理的结果渲染上下文
         this.command_completion  = null;  // 当前指令补全的结果
         this.command_index       = 0;     // 指令补全当前高亮项
 

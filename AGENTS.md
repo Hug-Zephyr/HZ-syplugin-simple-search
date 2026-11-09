@@ -9,7 +9,7 @@
 - **项目名称**: HZ-syplugin-simple-search（思源笔记增强搜索插件）
 - **开发语言**: JavaScript (ES6+)
 - **模块系统**: CommonJS（`require("siyuan")`）
-- **最低版本**: 思源笔记 v3.2.1+
+- **最低版本**: 思源笔记 v3.8.7+
 - **依赖管理**: 无外部npm依赖，纯原生实现
 - **分支**: master | commit: 09d5d80
 
