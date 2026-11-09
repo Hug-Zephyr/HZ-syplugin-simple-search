@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 
 const { load_plugin } = require('../test-support/load-plugin');
 
-const { api } = load_plugin();
+const { api, plugin_class } = load_plugin();
 const { get_command_complete, get_all_command_candidates, get_default_command_config, get_completion_display_order } = api;
 
 const CFG = get_default_command_config();
@@ -283,4 +283,32 @@ test('补全顺序预览: 设置顺序/使用次数/自定义', () => {
     assert.deepEqual(plain(get_completion_display_order(entries, 'usage', [], {})), ['a', 'b', 'c']);
     // 自定义: 沿用保存的顺序
     assert.deepEqual(plain(get_completion_display_order(entries, 'custom', ['c', 'a', 'b'])), ['c', 'a', 'b']);
+});
+
+test('使用次数: 搜索页会话记录, 关闭时每个指令 +1', () => {
+    const record = plugin_class.prototype.record_completion_usage;
+    const flush = plugin_class.prototype.flush_usage_session;
+    const plain = (value) => JSON.parse(JSON.stringify(value));
+    const page = { isConnected: true };
+    const ctx = {
+        g_setting: { command_config: get_default_command_config() },
+        completion_usage: {},
+        _usage_session: new Map(),
+        _completion_usage_dirty: false,
+        schedule_completion_usage_save() {},
+        start_usage_session_observer() {},
+    };
+
+    // 会话内多次搜索, 同一个指令只记录一次
+    record.call(ctx, page, '-dh 中国');
+    record.call(ctx, page, '-d 历史');
+    assert.equal(ctx._usage_session.get(page).size, 2);
+    assert.deepEqual(plain(ctx.completion_usage), {});
+
+    // 页面关闭才结算, 每个用到的指令 +1
+    flush.call(ctx, page);
+    assert.equal(ctx._usage_session.has(page), false);
+    const counts = Object.values(plain(ctx.completion_usage)).sort();
+    assert.deepEqual(counts, [1, 1]);
+    assert.equal(ctx._completion_usage_dirty, true);
 });

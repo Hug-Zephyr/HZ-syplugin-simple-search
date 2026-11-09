@@ -3135,27 +3135,63 @@ class SimpleSearchHZ extends siyuan.Plugin {
             if (ret && ret.catch) ret.catch(e => mylog_error("保存补全使用次数失败", e));
         }, 500);
     }
-    count_completion_usage(query, input = this.get_search_input()) {
+    // 搜索页打开期间记录用到的补全形式, 页面关闭时每个形式统一 +1
+    record_completion_usage(page, query) {
         const value = String(query || '');
-        const page = input?.closest?.('.fn__flex-column') || this.page;
         if (!value || !page) return;
-        if (!this._last_counted_queries) this._last_counted_queries = new WeakMap();
-        if (this._last_counted_queries.get(page) === value) return;
-        this._last_counted_queries.set(page, value);
         const keys = get_completion_usage_keys(this.g_setting.command_config, value);
         if (!keys.length) return;
-        for (const key of keys) {
+        if (!this._usage_session) this._usage_session = new Map();
+        let used = this._usage_session.get(page);
+        if (!used) {
+            used = new Set();
+            this._usage_session.set(page, used);
+        }
+        keys.forEach(key => used.add(key));
+        this.start_usage_session_observer();
+    }
+    // 监听搜索页被移除(页签/弹窗关闭), 移除后结算该页记录的使用次数
+    start_usage_session_observer() {
+        if (this._usage_observer || typeof MutationObserver === 'undefined' || !document.body) return;
+        this._usage_observer = new MutationObserver((records) => {
+            if (!this._usage_session || !this._usage_session.size) return;
+            // 只在有节点被移除时检查, 减少无关节点的开销
+            if (!records.some(record => record.removedNodes && record.removedNodes.length)) return;
+            for (const page of [...this._usage_session.keys()]) {
+                if (!page.isConnected) this.flush_usage_session(page);
+            }
+        });
+        this._usage_observer.observe(document.body, { childList: true, subtree: true });
+    }
+    flush_usage_session(page) {
+        const used = this._usage_session?.get(page);
+        if (!used) return;
+        this._usage_session.delete(page);
+        if (!used.size) return;
+        for (const key of used) {
             this.completion_usage[key] = (this.completion_usage[key] || 0) + 1;
         }
         this._completion_usage_dirty = true;
         this.schedule_completion_usage_save();
+        mylog_info('补全使用次数结算', [...used]);
+    }
+    flush_all_usage_sessions() {
+        if (!this._usage_session) return;
+        for (const page of [...this._usage_session.keys()]) this.flush_usage_session(page);
+    }
+    stop_usage_session_observer() {
+        if (this._usage_observer) {
+            this._usage_observer.disconnect();
+            this._usage_observer = null;
+        }
     }
     clear_completion_usage() {
         this.completion_usage = {};
         this._completion_usage_loaded = true;
         this._completion_usage_dirty = false;
         this._completion_usage_ignore_load = true;
-        this._last_counted_queries = new WeakMap();
+        // 未结算的会话也一起清掉, 避免关闭页面后又把计数加回来
+        this._usage_session = new Map();
         clearTimeout(this._completion_usage_save_timer);
         const ret = this.saveData("completion_usage.json", "{}");
         if (ret && ret.catch) ret.catch(e => mylog_error("清空补全使用次数失败", e));
@@ -3435,7 +3471,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     ${row_switch('command_complete', '自动显示指令补全', '开启后: 输入 - 时列出单字符指令, 输入 -- 时列出多字符指令和 kv key, 输入 kv key 后列出配置中的可选值<br>关闭后: 输入时不再自动弹出, 仍可用 Tab 快捷键手动打开(需开启「指令补全快捷键 (Tab)」)<br>选择指令期间会暂停搜索; -w/-q/-s/-r 模式指令之后不补全')}
                     ${row_switch('command_shortcut', '指令补全快捷键 (Tab)', '开启后: Tab 显示/隐藏指令补全列表(与“自动显示指令补全”开关无关, 自动弹出关闭时仍可手动调出), 没有补全候选时列出全部指令(回车插入); 手动状态只在当前搜索页有效, 不会修改任何设置<br>关闭后: 不使用该快捷键')}
                     ${row_number('command_rows', '补全菜单行数上限', '指令补全列表最多显示的行数; 0 表示只按窗口高度限制<br>自动显示和 Tab 快捷键都关闭时不可用')}
-                    ${row_select('completion_sort', '补全排序方式', '控制单字符、多字符、kv key 和 kv 值的补全顺序<br>设置顺序: 按指令配置的顺序<br>使用次数: 按实际搜索次数排序, 次数相同按设置顺序<br>自定义: 按下方分组列表的顺序<br>自动显示和 Tab 快捷键都关闭时不可用', [
+                    ${row_select('completion_sort', '补全排序方式', '控制单字符、多字符、kv key 和 kv 值的补全顺序<br>设置顺序: 按指令配置的顺序<br>使用次数: 按搜索页会话统计的次数排序(页面关闭时结算), 次数相同按设置顺序<br>自定义: 按下方分组列表的顺序<br>自动显示和 Tab 快捷键都关闭时不可用', [
                         {value: 'config', label: '按设置顺序（默认）'},
                         {value: 'usage',  label: '按使用次数'},
                         {value: 'custom', label: '自定义'},
@@ -3446,7 +3482,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                             <div class="b3-label__text">
                                 按“单字符 / 多字符与 kv key / 各 kv key 的值”分组展示；kv key 和多字符放在同一组，可一起调整顺序，每个 key 的值单独成组。<br>
                                 开关只在“自定义”排序下影响补全菜单，不影响解析和搜索。<br>
-                                使用次数按实际搜索/点击结果统计；切换排序方式时，此列表按对应顺序预览；非“自定义”排序或补全整体关闭时此列表置灰。
+                                使用次数按搜索页会话统计: 页签/弹窗打开期间用到的指令先记录, 关闭时每个指令 +1；切换排序方式时，此列表按对应顺序预览；非“自定义”排序或补全整体关闭时此列表置灰。
                             </div>
                         </div>
                         <button class="b3-button b3-button--outline b3-button--small" id="simpleSearchClearCompletionUsage">清空使用次数</button>
@@ -5298,11 +5334,6 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 this.is_searching = true;
                 return;
             }
-            // 用户修改了输入, 下一次搜索/点击结果重新计数
-            {
-                const page = inputElement.closest('.fn__flex-column');
-                if (page && this._last_counted_queries) this._last_counted_queries.delete(page);
-            }
             // 多值链中手动输入空格: 去掉末尾逗号, 和列表里的"空格(结束)"保持一致
             if (!event.isComposing && event.inputType === 'insertText' && event.data === ' ') {
                 const caret = inputElement.selectionStart;
@@ -5468,13 +5499,6 @@ class SimpleSearchHZ extends siyuan.Plugin {
             if (type !== 'arrowleft' && type !== 'arrowright' && type !== 'home' && type !== 'end') return;
             this.update_command_completion(inputElement.value, inputElement.selectionStart, inputElement);
         }, { signal: page_signal });
-        inputElement?.addEventListener('keydown', (event) => {
-            if (event.key !== 'Enter' || event.isComposing) return;
-            if (event.altKey || event.ctrlKey || event.shiftKey || event.metaKey) return;
-            // 建议列表打开时回车用于选择, 不算搜索
-            if (this.is_show_history_list() || this.is_show_command_list()) return;
-            this.count_completion_usage(inputElement.value, inputElement);
-        }, { capture: true, signal: page_signal });
         // 如果有搜索历史列表, 点击其他地方, 就退出
         if (!this.search_history_click_close_listener) {
             this.search_history_click_close_listener=true;
@@ -5576,20 +5600,6 @@ class SimpleSearchHZ extends siyuan.Plugin {
 
         // 接管搜索历史
         run_step('搜索历史', () => this.handle_search_history());
-
-        // 点击搜索结果时结算一次补全使用次数
-        if (!this._result_click_count_listener) {
-            this._result_click_count_listener = true;
-            document.addEventListener('click', (event) => {
-                const item = event.target?.closest?.('[data-type="search-item"]');
-                if (!item) return;
-                if (!item.closest('#searchList, #HZsimpleSearchList')) return;
-                const page = item.closest('.fn__flex-column');
-                const page_input = page?.querySelector('#searchInput');
-                const query = page_input?.value || this.get_search_input()?.value || '';
-                this.count_completion_usage(query, page_input);
-            }, { capture: true, signal: this.get_doc_signal() });
-        }
 
         // 新文档树事件
         // 3.接管上下键选中节点的效果
@@ -6103,6 +6113,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.ensure_page_resize_observer();
         this._search_config = data.detail.config;
         this.is_searching = true;
+        // 搜索页打开期间用到的补全形式先记录下来, 页面关闭时统一 +1
+        this.record_completion_usage(next_page, data.detail.searchElement?.value ?? data.detail.config?.query);
         mylog('搜索事件触发', data, data.detail.config, '触发页面', this.page);
 
         try {
@@ -6524,7 +6536,6 @@ class SimpleSearchHZ extends siyuan.Plugin {
             this._doc_abort.abort();
             this._doc_abort = null;
         }
-        this._result_click_count_listener = false;
         this.search_history_click_close_listener = false;
         this.focus_file_keydown_listener = false;
         this._suggestion_drag_listener = false;
@@ -6551,6 +6562,9 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.reset_page_state();
         // 手动 Alt+↓/Tab 的每页状态只在当前占用期间有效, 重新启用后恢复默认
         this.page_suggestion_states = new WeakMap();
+        // 搜索页会话结束(关闭插件/卸载): 结算期间用到的补全形式
+        this.flush_all_usage_sessions();
+        this.stop_usage_session_observer();
         this.page = null;
         this.clear_highlight();
     }
@@ -6630,10 +6644,10 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this._completion_usage_loaded = false;
         this._completion_usage_dirty  = false;
         this._completion_usage_ignore_load = false;
-        this._last_counted_queries    = new WeakMap(); // 每个搜索页已计数的查询
+        this._usage_session           = new Map(); // 搜索页 -> 本次会话用到的补全形式
+        this._usage_observer          = null;
         this._completion_usage_save_timer = 0;
         this._completion_entries_cache = null;
-        this._result_click_count_listener = false;
 
         this.page_suggestion_states = new WeakMap(); // 每个搜索页各自的历史/补全手动开关状态
         this.query        = {type:"", val:"", keywords:[], help:{}}; // 解析后的内容 {type: 搜索类型, val: 搜索内容, keywords: 关键词}
