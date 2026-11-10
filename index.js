@@ -5869,11 +5869,12 @@ class SimpleSearchHZ extends siyuan.Plugin {
             custom_time = ` [${escapeHtml(help.custom_time.join('] and ['))}]`
         }
         let custom_path = "";
-        if (help.path) {
-            help.custom_path.unshift(help.path);
-        }
-        if (help.custom_path.length) {
-            custom_path += ` and [${escapeHtml(help.custom_path.join('] and ['))}]`
+        // 不要修改 help: 重复渲染时 unshift 会不断累积页面路径
+        const path_parts = help.path
+            ? [help.path].concat(help.custom_path || [])
+            : (help.custom_path || []);
+        if (path_parts.length) {
+            custom_path += ` and [${escapeHtml(path_parts.join('] and ['))}]`
         }
         if (help.excludedPath.length) {
             custom_path += ` and ![${escapeHtml(help.excludedPath.join('] and !['))}]`

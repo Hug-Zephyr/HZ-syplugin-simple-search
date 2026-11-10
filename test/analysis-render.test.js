@@ -59,3 +59,26 @@ test('解析结果面板: 空/缺省字段不报错', () => {
     });
     assert.ok(html.includes('识别错误'));
 });
+
+test('解析结果面板: 重复渲染不改动 help.custom_path', () => {
+    const help = {
+        type: '-w',
+        group_file: false,
+        keywords: [],
+        excluded: [],
+        custom_time: [],
+        custom_path: ['/自定义'],
+        excludedPath: [],
+        path: '当前文档',
+        block_type: {},
+        type_cmd: {},
+        errors: [],
+    };
+    const before = JSON.stringify(help.custom_path);
+    const first = render(help);
+    const second = render(help);
+    assert.equal(JSON.stringify(help.custom_path), before);
+    assert.equal(first, second);
+    assert.ok(first.includes('当前文档'));
+    assert.ok(first.includes('/自定义'));
+});
