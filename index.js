@@ -1382,28 +1382,50 @@ function validate_command_config(cfg) {
     if (!cfg || !Array.isArray(cfg.categories)) return '缺少 categories 数组';
     const singles = new Set();
     const multis = new Set();
+    const kv_tokens = new Set();
     const kvs = new Set();
     for (const cat of cfg.categories) {
+        if (!cat || typeof cat !== 'object') return '分类格式错误';
+        if (typeof cat.id !== 'string' || !cat.id) return '分类缺少字符串 id';
+        if (cat.name != null && typeof cat.name !== 'string') return `分类 ${cat.id} 的 name 必须是字符串`;
+        if (cat.icon != null && typeof cat.icon !== 'string') return `分类 ${cat.id} 的 icon 必须是字符串`;
         if (!Array.isArray(cat.items)) return `分类 ${cat.id} 缺少 items`;
         for (const item of cat.items) {
-            if (item.enabled === false) continue;  // 关闭的项不参与解析, 也不参与重复校验
+            if (!item || typeof item !== 'object') return `分类 ${cat.id} 中存在无效的指令项`;
+            if (typeof item.id !== 'string' || !item.id) return `分类 ${cat.id} 中存在缺少字符串 id 的指令项`;
+            if (item.name != null && typeof item.name !== 'string') return `项 ${item.id} 的 name 必须是字符串`;
             if (!Array.isArray(item.comms)) return `项 ${item.id} 缺少 comms`;
             for (const c of item.comms) {
+                if (!c || typeof c !== 'object') return `项 ${item.id} 中存在无效的指令形式`;
+                if (typeof c.form !== 'string') return `项 ${item.id} 的指令形式缺少 form`;
                 if (c.form === 'single') {
                     if (!is_command_form_allowed(item, 'single')) continue;
-                    if (typeof c.content !== 'string' || [...c.content].length !== 1) return `单字符必须是 1 个字符: ${c.content}`;
+                    if (typeof c.content !== 'string') return `项 ${item.id} 的单字符必须是字符串`;
+                    if (item.enabled === false) continue;  // 关闭的项不参与解析, 也不参与重复校验
+                    if ([...c.content].length !== 1) return `单字符必须是 1 个字符: ${c.content}`;
                     if (singles.has(c.content)) return `单字符重复: ${c.content}`;
                     singles.add(c.content);
                 } else if (c.form === 'multi') {
+                    if (typeof c.content !== 'string') return `项 ${item.id} 的多字符必须是字符串`;
+                    if (item.enabled === false) continue;
                     if (!c.content) return `多字符不能为空: ${item.id}`;
                     if (multis.has(c.content)) return `多字符重复: ${c.content}`;
+                    if (kv_tokens.has(c.content)) return `多字符与 kv 指令重复: ${c.content}`;
                     multis.add(c.content);
                 } else if (c.form === 'kv') {
                     if (!is_command_form_allowed(item, 'kv')) continue;
+                    if (typeof c.key !== 'string') return `项 ${item.id} 的 kv key 必须是字符串`;
+                    if (c.value != null && typeof c.value !== 'string') return `项 ${item.id} 的 kv 值必须是字符串`;
+                    if (item.enabled === false) continue;
                     if (!c.key) return `kv 缺少 key: ${item.id}`;
                     const sig = JSON.stringify([c.key, c.value || '']);
                     if (kvs.has(sig)) return `kv 重复: ${c.key}${c.value || ''}`;
                     kvs.add(sig);
+                    // kv 实际使用的完整 token, 和 multi 指令交叉查重
+                    const token = c.key + (c.value || '');
+                    if (multis.has(token)) return `kv 指令与多字符重复: ${token}`;
+                    if (kv_tokens.has(token)) return `kv 指令重复: ${token}`;
+                    kv_tokens.add(token);
                 } else {
                     return `未知的指令形式: ${c.form}`;
                 }
@@ -3616,7 +3638,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                                 · 单字符：只填字符，输入时加 <span class="fn__code">-</span>，例如 <span class="fn__code">h</span> 对应 <span class="fn__code">-h</span>。<br>
                                 · 多字符：填指令本身，例如 <span class="fn__code">--callout</span>；路径、时间这类指令，后面的内容会作为参数。<br>
                                 · 自定义多字符即使不以 <span class="fn__code">--</span> 开头（如 <span class="fn__code">xxcallout</span>），也会出现在 <span class="fn__code">--</span> 补全、Tab 全部指令和自定义顺序中；以 <span class="fn__code">@</span> 等符号开头时输入前缀会自动补全。<br>
-                                · kv：填 key 和值，key 末尾要带 <span class="fn__code">=</span>，例如 <span class="fn__code">--type=</span> 和 <span class="fn__code">callout</span> 组成 <span class="fn__code">--type=callout</span>。<br>
+                                · kv：配置时分别填 key 和值，使用时值直接拼在 key 后面。常见写法是 key 以 <span class="fn__code">=</span> 结尾，例如 <span class="fn__code">--type=</span> + <span class="fn__code">callout</span> → <span class="fn__code">--type=callout</span>；也可以不带 <span class="fn__code">=</span>，例如 <span class="fn__code">--type</span> + <span class="fn__code">callout</span> → <span class="fn__code">--typecallout</span>。<br>
                                 · 自定义 kv key 也可以不以 <span class="fn__code">--</span> 开头（如 <span class="fn__code">@@type=</span>），输入 key 后会继续补全值。<br>
                                 路径过滤、排除路径只支持多字符形式；全文档不支持 kv；路径内容直接接在多字符指令后面。<br>
                                 关闭某一项后，输入对应指令会整段按关键词搜索。<br>
@@ -4421,7 +4443,11 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 }
             });
         });
-        cancel_btn?.addEventListener('click', () => dialog.destroy());
+        cancel_btn?.addEventListener('click', () => {
+            // 取消: 直接放弃未保存的修改并关闭, 不再弹未保存提示
+            allow_close = true;
+            dialog.destroy();
+        });
         save_btn?.addEventListener('click', () => {
             if (save_settings(false)) {
                 allow_close = true;

@@ -904,6 +904,48 @@ test('配置: 空多字符、超长单字符、未知形式会被拒绝', () => 
     assert.equal(validate_command_config(bad_form), '未知的指令形式: foo');
 });
 
+test('配置: 字段类型不合法会被拒绝', () => {
+    const bad_cat_name = get_default_command_config();
+    bad_cat_name.categories[0].name = 123;
+    assert.match(validate_command_config(bad_cat_name), /name 必须是字符串/);
+
+    const bad_item_name = get_default_command_config();
+    bad_item_name.categories.find(cat => cat.id === 'type')
+        .items.find(item => item.id === 'p').name = {};
+    assert.match(validate_command_config(bad_item_name), /name 必须是字符串/);
+
+    const bad_multi = get_default_command_config();
+    bad_multi.categories.find(cat => cat.id === 'type')
+        .items.find(item => item.id === 'p')
+        .comms.push({ form: 'multi', content: 123 });
+    assert.match(validate_command_config(bad_multi), /多字符必须是字符串/);
+
+    const bad_kv = get_default_command_config();
+    bad_kv.categories.find(cat => cat.id === 'type')
+        .items.find(item => item.id === 'p')
+        .comms.push({ form: 'kv', key: 1, value: 'x' });
+    assert.match(validate_command_config(bad_kv), /kv key 必须是字符串/);
+});
+
+test('配置: multi 与同形 kv 指令冲突会被拒绝', () => {
+    // multi 在前: 后面 kv 的有效 token 与它相同
+    const multi_first = get_default_command_config();
+    multi_first.categories.find(cat => cat.id === 'type')
+        .items.find(item => item.id === 'p')
+        .comms.push({ form: 'multi', content: '--type=callout' });
+    assert.match(validate_command_config(multi_first), /kv 指令与多字符重复/);
+
+    // kv 在前: 后面 multi 与它相同
+    const kv_first = get_default_command_config();
+    kv_first.categories.find(cat => cat.id === 'type')
+        .items.find(item => item.id === 'p')
+        .comms.push({ form: 'kv', key: '--foo=', value: 'bar' });
+    kv_first.categories.find(cat => cat.id === 'type')
+        .items.find(item => item.id === 'callout')
+        .comms.push({ form: 'multi', content: '--foo=bar' });
+    assert.match(validate_command_config(kv_first), /多字符与 kv 指令重复/);
+});
+
 test('注册表: 前缀、kv 和关闭项', () => {
     const reg = build_command_registry(get_default_command_config());
     const prefixes = reg.multi_prefix.map(item => item.token);
