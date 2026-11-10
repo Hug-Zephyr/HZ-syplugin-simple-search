@@ -57,8 +57,7 @@ test('顶部按钮: 各自的显示开关仍然有效', () => {
     assert.deepEqual(plain(ctx.elements.get('#simpleSearchDisplayTreeSetting').classList.toggles), [['fn__none', false]]);
 });
 
-test('辅助区域开关: 图标/文案/display 与状态一致', () => {
-    assert.deepEqual(plain(get_assist_sw_style.call({}, true)), {
+test('辅助区域开关: 图标/文案/display 与状态一致', () => {    assert.deepEqual(plain(get_assist_sw_style.call({}, true)), {
         icon: '#iconEyeoff',
         label: '简搜: 点击隐藏辅助信息框',
         display: 'contents',
@@ -94,4 +93,36 @@ test('建议列表状态: 按 suggestion_mode 和 fn__none 判断', () => {
     assert.equal(is_show_history.call(context), true);
     // 模式不匹配时仍为 false
     assert.equal(is_show_command.call(context), false);
+});
+
+test('页面切换: reset_page_state 清理跨页状态', () => {
+    const reset = plugin_class.prototype.reset_page_state;
+    const context = {
+        history_timer_id: 0,
+        history_previewing: true,
+        history_input_flag: true,
+        history_typed_value: '旧输入',
+        suggestion_mode: 'history',
+        command_completion: {},
+        command_index: 2,
+        _history_suppressed_value: '旧输入',
+        is_searching: true,
+        _search_config: {},
+        _pending_render: null,
+        _page_resize_observer: null,
+        _page_resize_observer_page: {},
+        _search_wait_id: 5,
+        last_sort: 1,
+        last_group: 0,
+        click_res_flag: true,
+        _preview_highlight_token: 3,
+    };
+    reset.call(context);
+    assert.equal(context.suggestion_mode, null);
+    assert.equal(context.is_searching, false);
+    assert.equal(context._search_wait_id, 6);
+    assert.equal(context.last_sort, -1);
+    assert.equal(context.last_group, -1);
+    assert.equal(context.click_res_flag, false);
+    assert.equal(context._preview_highlight_token, 4);
 });

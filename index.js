@@ -3088,6 +3088,12 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this._history_suppressed_value = null;
         this.is_searching = false;
         this._search_config = null;
+        // 页面切换后不能再沿用上一页的排序/分组恢复状态和点击标记
+        this.last_sort = -1;
+        this.last_group = -1;
+        this.click_res_flag = false;
+        // 让上一页还没执行完的预览高亮重试作废
+        this._preview_highlight_token = (this._preview_highlight_token || 0) + 1;
         // 作废还没处理完的搜索结果等待
         if (this._pending_render?.timer) clearTimeout(this._pending_render.timer);
         this._pending_render = null;
