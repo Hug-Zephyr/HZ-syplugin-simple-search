@@ -31,7 +31,7 @@ test('解析结果面板: 用户输入与路径按纯文本转义', () => {
         type_cmd: {},
         sort: '<b>排序</b>',
         group_desc: '<b>分组</b>',
-        ret_str: '<img src=x onerror=1>',
+        val: '<img src=x onerror=1>',
         errors: [],
     });
     // 输出中不能出现任何由用户输入拼出的标签
@@ -58,6 +58,46 @@ test('解析结果面板: 空/缺省字段不报错', () => {
         errors: [],
     });
     assert.ok(html.includes('识别错误'));
+});
+
+test('解析结果面板: 搜索方式显示配置后的指令', () => {
+    const html = render({
+        type: '-w',
+        mode_cmd: '-z',
+        mode_name: '关键字搜索',
+        group_file: false,
+        keywords: [],
+        excluded: [],
+        custom_time: [],
+        custom_path: [],
+        excludedPath: [],
+        path: '',
+        block_type: {},
+        type_cmd: {},
+        errors: [],
+    });
+    assert.ok(html.includes('-z'));
+    assert.ok(html.includes('关键字搜索'));
+});
+
+test('解析结果面板: 转换结果只显示查询正文, 不带模式前缀', () => {
+    const html = render({
+        type: '-s',
+        mode_cmd: '-z',
+        group_file: false,
+        keywords: [],
+        excluded: [],
+        custom_time: [],
+        custom_path: [],
+        excludedPath: [],
+        path: '',
+        block_type: {},
+        type_cmd: {},
+        errors: [],
+        val: 'select * from blocks where true',
+    });
+    assert.ok(html.includes('select * from blocks where true'));
+    assert.equal(html.includes('-sselect'), false);
 });
 
 test('解析结果面板: 重复渲染不改动 help.custom_path', () => {

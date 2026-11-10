@@ -378,7 +378,8 @@ test('排除关键词和文档模式', () => {
     assert.equal(both.type, '-q');
     assert.deepEqual(both.keywords, ['关键词']);
     assert.deepEqual(both.help.excluded, ['草稿']);
-    assert.equal(both.val.trim(), '"关键词" NOT "草稿"');
+    assert.equal(both.val, '"关键词" NOT "草稿"');
+    assert.equal(both.help.val, both.val);
 
     const doc_mode = parse('||');
     assert.equal(doc_mode.help.group_file, true);
@@ -387,16 +388,23 @@ test('排除关键词和文档模式', () => {
 test('排除关键词: 查询语法中的特殊字符按字面量处理', () => {
     const r = parse('a:b !草稿');
     assert.equal(r.type, '-q');
-    assert.equal(r.val.trim(), '"a:b" NOT "草稿"');
+    assert.equal(r.val, '"a:b" NOT "草稿"');
 
     // 关键词内部的双引号用 "" 转义
     const quotes = parse('he "x" !草稿');
-    assert.equal(quotes.val.trim(), '"he" """x""" NOT "草稿"');
+    assert.equal(quotes.val, '"he" """x""" NOT "草稿"');
 });
 
 test('类型过滤: 未指定时使用页面配置的类型', () => {
     const r = parse('-w 关键词', { types: { document: true, paragraph: true } });
     assert.deepEqual(block_types(r), ['d', 'p']);
+});
+
+test('类型过滤: 页面勾选被关闭的类型时, 展示指令仍取配置形式', () => {
+    // 超级块的指令默认关闭, 但页面勾选后解析面板仍要显示它的配置形式 -S
+    const r = parse('关键词', { types: { superBlock: true } });
+    assert.deepEqual(block_types(r), ['s']);
+    assert.equal(r.help.type_cmd.s, '-S');
 });
 
 test('配置: 自定义单字符后按新指令解析', () => {
@@ -410,6 +418,78 @@ test('配置: 自定义单字符后按新指令解析', () => {
 
     const old = parse('-d', { command_config: cfg });
     assert.deepEqual(old.help.errors, ['未识别的指令, 已按关键词搜索: -d']);
+});
+
+test('配置: 自定义单字符 e 不会被当成路径选项过滤掉', () => {
+    const cfg = get_default_command_config();
+    const doc_item = cfg.categories.find(cat => cat.id === 'type')
+        .items.find(item => item.id === 'd');
+    doc_item.comms = [{ form: 'single', content: 'e' }];
+
+    const r = parse('-e', { command_config: cfg });
+    assert.deepEqual(block_types(r), ['d']);
+    assert.match(r.val, /type regexp '\^\[d\]\$'/);
+    assert.deepEqual(r.help.errors, []);
+});
+
+test('配置: 当前文档指令改名后按新指令生效', () => {
+    const cfg = get_default_command_config();
+    const current = cfg.categories.find(cat => cat.id === 'path')
+        .items.find(item => item.id === 'current');
+    current.comms = [{ form: 'single', content: 'c' }];
+
+    const r = parse('-c', { command_config: cfg });
+    assert.equal(r.help.path, '当前文档');
+    assert.match(r.val, /path like '%doc123\.sy'/);
+    assert.deepEqual(r.help.errors, []);
+
+    const old = parse('-k', { command_config: cfg });
+    assert.match(old.help.errors[0], /未识别的指令/);
+});
+
+test('配置: 当前文档指令改名后回退提示使用新指令', () => {
+    const { api: no_focus } = load_plugin({ focus_doc: null });
+    const cfg = get_default_command_config();
+    cfg.categories.find(cat => cat.id === 'path')
+        .items.find(item => item.id === 'current').comms = [{ form: 'single', content: 'c' }];
+
+    const r = JSON.parse(JSON.stringify(no_focus.search_translator({
+        ...BASE_ARG, command_config: cfg, query: '-c',
+    })));
+    assert.match(r.help.errors[0], /-c 已回退到页面搜索路径/);
+});
+
+test('配置: 时间 kv 值改名后仍按对应时间字段过滤', () => {
+    const cfg = get_default_command_config();
+    const ct = cfg.categories.find(cat => cat.id === 'time')
+        .items.find(item => item.id === 'ct');
+    ct.comms = [{ form: 'multi', content: 'ct' }, { form: 'kv', key: '--time=', value: 'created' }];
+
+    const r = parse('--time=created>2025 关键词', { command_config: cfg });
+    assert.equal(r.help.custom_time.length, 1);
+    assert.match(r.help.custom_time[0], /创建时间>2025/);
+    assert.match(r.val, /created>'\d+'/);
+});
+
+test('配置: 模式指令改名后解析面板显示新指令', () => {
+    const cfg = get_default_command_config();
+    const kw = cfg.categories.find(cat => cat.id === 'mode')
+        .items.find(item => item.id === 'keyword');
+    kw.comms = [{ form: 'single', content: 'z' }];
+    kw.name = '关键词模式';
+
+    // 显式输入: 显示用户实际输入的写法
+    const explicit = parse('-z 中国', { command_config: cfg });
+    assert.equal(explicit.type, '-w');
+    assert.equal(explicit.help.mode_cmd, '-z');
+    assert.equal(explicit.help.mode_name, '关键词模式');
+    assert.equal(explicit.help.val, '中国');
+
+    // 没输入模式指令: 也显示该方式在配置里的写法
+    const implicit = parse('中国', { command_config: cfg });
+    assert.equal(implicit.type, '-w');
+    assert.equal(implicit.help.mode_cmd, '-z');
+    assert.equal(implicit.help.mode_name, '关键词模式');
 });
 
 test('配置: 新增 kv 形式后可以解析', () => {

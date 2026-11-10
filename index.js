@@ -706,6 +706,16 @@ function _build_completion_model(cfg) {
     return model;
 }
 
+// 块类型/排序的 kv 组支持逗号多值; 返回这些 kv key(跟随配置改名)
+function _get_chain_kv_keys(cfg) {
+    const model = _build_completion_model(cfg);
+    const keys = [];
+    for (const [key, entries] of model.kv_groups) {
+        if (entries.some(e => e.cat.id === 'type' || e.cat.id === 'sort')) keys.push(key);
+    }
+    return keys;
+}
+
 // 一个 kv key 下的值信息, 用于判断 -- 菜单里显示 key 还是直接显示完整值
 function _get_kv_group_info(entries) {
     const values = [];
@@ -1169,29 +1179,40 @@ function _get_time_candidates(model, best, suffix, token_info, manual) {
         current = suffix.slice(sep + 1);
     }
     const base = best + head;
-    const field_names = { ct: '创建时间', ut: '更新时间' };
+    // 字段名和展示名都取自配置, 改 kv 值后补全同步变化
+    const field_names = {};
+    const field_values = [];
+    for (const e of (model.kv_groups.get(best) || [])) {
+        if (!e.value || !e.item || e.item.kind !== 'time' || field_values.includes(e.value)) continue;
+        field_values.push(e.value);
+        field_names[e.value] = e.item.name || e.value;
+    }
+    if (!field_values.length) return null;
+    const is_field = (v) => field_values.includes(v);
+    const is_field_prefix = (v) => field_values.some(f => f.startsWith(v));
     const op_names = { '<': '早于', '>': '晚于', '=': '等于' };
     const candidates = [];
     let state = '';
     let insert_prefix = base;
-    if (current === '' || current === 'c' || current === 'u') {
+    if (!current || (is_field_prefix(current) && !is_field(current))) {
         state = 'field';
-    } else if (current === 'ct' || current === 'ut') {
+    } else if (is_field(current)) {
         state = 'op';
         insert_prefix = base + current;
     } else {
-        const m = current.match(/^(ct|ut)([<>=])(\d{0,14})$/);
+        const pattern = field_values
+            .slice().sort((a, b) => b.length - a.length)
+            .map(f => f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+            .join('|');
+        const m = current.match(new RegExp(`^(${pattern})([<>=])(\\d{0,14})$`));
         if (!m) return null;
         const [, , , date] = m;
         insert_prefix = base + current;
         if (!date) state = 'date';
-        else {
-            state = 'after_date';
-            insert_prefix = base + current;
-        }
+        else state = 'after_date';
     }
     if (state === 'field') {
-        const fields = ['ct', 'ut'].filter(f => f.startsWith(current));
+        const fields = field_values.filter(f => f.startsWith(current));
         fields.forEach(f => candidates.push({
             kind: 'value',
             insert: base + f,
@@ -1323,6 +1344,7 @@ function build_command_registry(cfg) {
         kv_groups: new Map(),    // key -> [{cat, item, value}]
         modes: [],               // {single|token|key, value, item}
         type_cmd_map: new Map(), // 类型码 -> 展示用指令(取配置中的第一种形式)
+        mode_cmd_map: new Map(), // 搜索方式输出值(-w 等) -> {cmd, name}(取配置中的第一种形式)
         // 被单项开关关闭的指令, 只用于给出"已关闭"的提示
         disabled_single: new Map(),
         disabled_exact: new Map(),
@@ -1331,6 +1353,23 @@ function build_command_registry(cfg) {
     };
     for (const cat of cfg.categories) {
         for (const item of (cat.items || [])) {
+            // 类型项的首选展示形式, 供解析面板使用;
+            // 被关闭的项也要记录: 页面勾选的原生搜索结果里仍可能出现该类型
+            if (cat.id === 'type') {
+                const cmd = get_item_display_forms(item)[0] || '';
+                if (item.kind === 'type') reg.type_cmd_map.set(item.code, cmd);
+                else if (item.kind === 'heading') reg.type_cmd_map.set('h', cmd);
+                else if (item.kind === 'todo') reg.type_cmd_map.set(item.done ? 'O' : 'o', cmd);
+                else if (item.kind === 'link') reg.type_cmd_map.set('L', cmd);
+            }
+            // 搜索方式的展示指令: 输出值仍是思源要求的 -w/-q/-s/-r,
+            // 但解析面板要显示用户配置后的写法
+            if (cat.id === 'mode' && item.mode) {
+                reg.mode_cmd_map.set(item.mode, {
+                    cmd: get_item_display_forms(item)[0] || '',
+                    name: item.name || '',
+                });
+            }
             // 被单项开关关闭的项不参与解析
             if (item.enabled === false) {
                 for (const c of (item.comms || [])) {
@@ -1351,14 +1390,6 @@ function build_command_registry(cfg) {
                     }
                 }
                 continue;
-            }
-            // 类型项的首选展示形式, 供解析面板使用
-            if (cat.id === 'type') {
-                const cmd = get_item_display_forms(item)[0] || '';
-                if (item.kind === 'type') reg.type_cmd_map.set(item.code, cmd);
-                else if (item.kind === 'heading') reg.type_cmd_map.set('h', cmd);
-                else if (item.kind === 'todo') reg.type_cmd_map.set(item.done ? 'O' : 'o', cmd);
-                else if (item.kind === 'link') reg.type_cmd_map.set('L', cmd);
             }
             for (const c of (item.comms || [])) {
                 if (!is_command_form_allowed(item, c.form)) continue;
@@ -1473,7 +1504,7 @@ const COMMAND_ITEM_INFOS = {
 · //笔记：在所有笔记本中搜索路径含“笔记”的结果
 · 不要只填字母（如 bb），否则 bbq 会被当成“全文档 + 路径 q”
 · 建议用 // 这类符号
-· 和 -k/-K 同时输入时，以当前文档为准`,
+· 和当前文档指令同时输入时，以当前文档为准`,
     not_path: `排除路径
 · 只能配多字符，后面直接接路径
 · -/草稿：排除路径中含“草稿”的结果
@@ -1781,6 +1812,8 @@ function search_translator(arg) {
     const pageSearchSubTypes = arg.subTypes || {}; // 页面配置的子类型(标题级别/列表类型)
 
     let   options          = ""; // 解析出来的搜索类型
+    let   current_doc      = 0;  // 当前文档范围: 0 未指定, 1 仅当前文档, 2 当前文档及子文档
+    let   current_doc_cmd  = ""; // 当前文档范围的展示指令, 以配置为准
     let   keywords         = []; // 解析出来的搜索关键词
     const excludedKeywords = []; // 解析出来的排除的关键词
     let   custom_path      = []; // 解析出来的自定义的搜索路径
@@ -1791,8 +1824,10 @@ function search_translator(arg) {
     let   custom_group     = -1; // 解析出来的自定义的分组方式
 
     const help             = {   // 帮助信息存储
-        ret_str     : "",
+        val         : "",   // 转换后的查询正文(不含 -w/-q/-s/-r 前缀)
         type        : "",
+        mode_cmd    : "",   // 搜索方式的展示用指令(以配置为准)
+        mode_name   : "",   // 搜索方式的名称(以配置为准)
         group_file  : false,
         keywords    : [],
         excluded    : [],
@@ -1920,8 +1955,12 @@ function search_translator(arg) {
         if (keywords.length > 1) {
             keywords.splice(0, keywords.length, ...new Set(keywords));
         }
-        help.ret_str  = ret;
+        help.val      = val;
         if (help.type.length == 0) help.type = type;
+        // 解析面板显示用户可读的指令形式; 未显式输入时取该搜索方式在配置里的写法
+        const mode_info = reg.mode_cmd_map.get(type);
+        if (!help.mode_cmd) help.mode_cmd = (mode_info && mode_info.cmd) || type;
+        if (!help.mode_name) help.mode_name = (mode_info && mode_info.name) || '';
         help.group_file = doc_mode;
         help.keywords = keywords;
         // 预览高亮用的词: 有结构化关键词时直接用, 显式 -q 再从查询语法里提取
@@ -1973,57 +2012,6 @@ function search_translator(arg) {
         help.custom_time.push(time_help);
         return true;
     }
-    const _parse_sort = function(str) {
-        if (str.at(-1) != '>' && str.at(-1) != '<') return false;
-        const patternMap = {
-            'type<' : TYPE_SORT,
-            'type>' : TYPE_SORT,
-            'ct<'   : CT_ASC,
-            'ct>'   : CT_DESC,
-            'ut<'   : UT_ASC,
-            'ut>'   : UT_DESC,
-            'cont<' : FILE_CONTENT,
-            'cont>' : FILE_CONTENT,
-            'g<'    : GROUP_FLAG,
-            'g>'    : GROUP_FLAG,
-            'nog<'  : NOGROUP_FLAG,
-            'nog>'  : NOGROUP_FLAG,
-        };
-
-        let index = 0;
-        const keys = Object.keys(patternMap);
-        while (index < str.length) {
-            let matched = false;
-            for (const key of keys) {
-                if (str.startsWith(key, index)) {
-                    switch(patternMap[key]) {
-                    case GROUP_FLAG:
-                        custom_group = 1;
-                        break;
-                    case NOGROUP_FLAG:
-                        custom_group = 0;
-                        break;
-                    default:
-                        custom_sort.push(patternMap[key]);
-                        break;
-                    }
-                    index += key.length;
-                    matched = true;
-                    break;
-                }
-            }
-            // 没有匹配到任何排序
-            if (!matched) {
-                return false; 
-            }
-        }
-        custom_sort = [...new Set(custom_sort)];
-        if (custom_group != -1) {
-            arg.group = custom_group;
-        }
-        // 成功匹配完整个字符串
-        return true;
-    }
     // 记录一个类型项
     const _add_type = function(item, payload) {
         if (item.kind === 'type') {
@@ -2071,7 +2059,9 @@ function search_translator(arg) {
             break;
         }
         case 'current':
-            options += item.tree ? 'K' : 'k';
+            // 只记录范围, 不再把指令字符混进类型串
+            current_doc = Math.max(current_doc, item.tree ? 2 : 1);
+            current_doc_cmd = get_item_display_forms(item)[0] || current_doc_cmd;
             break;
         case 'time': {
             const expr = item.field + payload;
@@ -2158,7 +2148,8 @@ function search_translator(arg) {
             }
             let item_payload = '';
             if (matched.item.kind === 'time') {
-                item_payload = part;
+                // kv 值可以改名: 统一换成条目的规范字段(ct/ut)再接比较符和日期
+                item_payload = matched.item.field + part.slice(matched.value.length);
             } else if (matched.item.kind === 'heading' && matched.value !== '') {
                 // 固定值后面直接接级别数字
                 item_payload = part === matched.value ? '' : part.slice(matched.value.length);
@@ -2420,14 +2411,11 @@ function search_translator(arg) {
         // 这里的词来自普通输入, 按字面量处理; 双引号包裹可避免 : ( ) * - 等
         // 被 FTS5 查询语法解释; 内部的 " 用 "" 转义
         const quote = (word) => `"${String(word).replace(/"/g, '""')}"`;
-        let querySyntax = "-q";
-        for (let word of keywords) {
-            querySyntax += " " + quote(word);
-        }
+        const parts = keywords.map(quote);
         for (let word of excludedKeywords) {
-            querySyntax += " NOT " + quote(word);
+            parts.push('NOT ' + quote(word));
         }
-        return querySyntax;
+        return "-q" + parts.join(" ");
     }
     const _buildSqlKeyWordsOnce = function(word, is_exclude = false) {
         const word_like = escapeSqlLike(word);
@@ -2469,8 +2457,8 @@ function search_translator(arg) {
 
     // [拼接sql] 过滤块类型
     const _buildSqlTypeRlike = function() {
-        // 去掉指定路径相关的选项
-        let sqlTypes = options.replace(/[kKe]/g, "");
+        // options 只存块类型码(含 h1.. / o / O / L); 当前文档范围由 current_doc 单独记录
+        let sqlTypes = options;
         let sqlTypeRlike = "";
         if (!sqlTypes && !extra_types.length && !keywords.length && !excludedKeywords.length && custom_path.some(s => /[^/]/.test(s))) {
             // 没有指定类型, 没有关键字/排除字, 路径有效的情况下, 只搜文档
@@ -2611,7 +2599,7 @@ function search_translator(arg) {
         const no_keywords = keywords.length == 0;
         // 显式指定了块类型时, 这次是块搜索, 路径只做普通路径过滤,
         // 不再套用"仅文档 + 最后一段当文档名"的规则, 否则会和类型条件互斥
-        const has_explicit_type = !!options.replace(/[kKe]/g, "") || extra_types.length > 0;
+        const has_explicit_type = !!options || extra_types.length > 0;
         // 指定搜索路径名称
         // 1. 只有搜索路径 /笔记本1/文档1
         // 2. 指定搜索路径 加其他 /笔记本1 -h 序列号
@@ -2666,20 +2654,20 @@ function search_translator(arg) {
     // [拼接sql] 限制文档路径
     const _buildSqlCurrentDoc = function() {
         let sqlCurrentDoc = "";
-        if (options.match(/[kK]/)) {
+        if (current_doc) {
             // 指定搜索路径为: 当前文档或子文档
             const currentDocId = SYT.get_data_id();
             if (currentDocId) {
-                sqlCurrentDoc = options.match(/K/)
+                sqlCurrentDoc = current_doc === 2
                     ? `path regexp '${escapeSqlString(currentDocId)}'`
                     : `path like '%${escapeSqlLike(currentDocId)}.sy' escape '!'`;
-                help.path = options.match(/K/) ? "当前文档及子文档" : "当前文档";
+                help.path = current_doc === 2 ? "当前文档及子文档" : "当前文档";
             } else {
                 // 取不到当前文档时不限制到当前文档, 回退到页面搜索路径并提示
-                help.errors.push('未找到当前文档, -k/-K 已回退到页面搜索路径');
+                help.errors.push(`未找到当前文档, ${current_doc_cmd || '当前文档指令'} 已回退到页面搜索路径`);
             }
         }
-        // 没有限定到当前文档时(未指定 -k/-K, 或取不到当前文档), 沿用页面配置的路径
+        // 没有限定到当前文档时(未指定当前文档指令, 或取不到当前文档), 沿用页面配置的路径
         if (!sqlCurrentDoc) {
             if (custom_path_all) {
                 // 指定搜索路径为全部
@@ -2814,7 +2802,7 @@ function search_translator(arg) {
         // 过滤关键词
         let sqlKeyWords = _buildSqlKeyWords(doc_mode);
         // 过滤块类型
-        let sqlTypeRlike = _buildSqlTypeRlike(options);
+        let sqlTypeRlike = _buildSqlTypeRlike();
         // 以文档维度,过滤关键词
         let sqlGroupByFile = _buildSqlGroupByFile();
         // 过滤时间
@@ -2822,7 +2810,7 @@ function search_translator(arg) {
         // 自定义文档路径
         let sqlCustomPath = _buildSqlCustomPath();
         // 限制文档路径
-        let sqlCurrentDoc = _buildSqlCurrentDoc(options, pageSearchPath);
+        let sqlCurrentDoc = _buildSqlCurrentDoc();
         // 搜索结果排序方式
         let sqlOrderBy = _buildOrderByQuery(options);
 
@@ -2831,7 +2819,7 @@ function search_translator(arg) {
 
     // 区分场景 构造搜索语句
     const _buildQuery = function() {
-        if (options.length || extra_types.length || doc_mode ||
+        if (options.length || extra_types.length || doc_mode || current_doc ||
             custom_path.length || excludedPath.length || custom_path_all ||
             custom_time.length || custom_sort.length || custom_group != -1) {
             // 指定选项/路径/时间/排序/分组
@@ -2868,6 +2856,7 @@ function search_translator(arg) {
     const mode_hit = _scan_mode();
     if (mode_hit) {
         _add_recognized(mode_hit.token, mode_hit.desc);
+        help.mode_cmd = mode_hit.token;
         help.mode_explicit = true;
         return _handle_ret(mode_hit.mode + mode_hit.query);
     }
@@ -5495,7 +5484,9 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     let token_start = caret - 2;
                     while (token_start > 0 && !/\s/.test(val[token_start - 1])) token_start--;
                     const token = val.slice(token_start, caret - 2);
-                    if (token.startsWith('--type=') || token.startsWith('--sort=')) {
+                    // 支持逗号多值的 kv key 跟随配置, 不写死 --type=/--sort=
+                    const chain_keys = _get_chain_kv_keys(this.g_setting.command_config || get_default_command_config());
+                    if (chain_keys.some(key => token.startsWith(key))) {
                         inputElement.value = val.slice(0, caret - 2) + ' ' + val.slice(caret);
                         inputElement.setSelectionRange(caret - 1, caret - 1);
                     }
@@ -5890,13 +5881,11 @@ class SimpleSearchHZ extends siyuan.Plugin {
             // 关键词/排除词可能来自用户输入, 必须转义后再拼接
             return `<span class="fn__code">${arr.map(escapeHtml).join(`</span>${sep}<span class="fn__code">`)}</span>`;
         }
-        const typeMap = {
-            "-w": "关键字搜索",
-            "-q": "查询语法",
-            "-s": "sql语句",
-            "-r": "正则表达式",
-        }
-        const type = typeMap[help.type] ? `${this.code(escapeHtml(help.type))}${typeMap[help.type]}` : "识别错误"
+        // 面板显示配置后的指令和名称; 输出给思源的仍是 help.type(-w 等)
+        const mode_cmd = help.mode_cmd || help.type;
+        const type = help.mode_name
+            ? `${this.code(escapeHtml(mode_cmd))}${escapeHtml(help.mode_name)}`
+            : "识别错误"
         let group_file = help.group_file ? `(文档模式, 在符合条件的文档下进行搜索)` : "";
         let separator = help.group_file ? `|` : "&";
         let keywords = handle_arr(help.keywords, '未识别', separator);
@@ -5919,10 +5908,9 @@ class SimpleSearchHZ extends siyuan.Plugin {
         custom_path = custom_path ? custom_path.slice(5) : "全部"
         let block_type = "";
         Object.entries(help.block_type).forEach(([key, val]) => {
-            // 优先使用配置中的指令形式(设置里改名/加别名后同步); 老数据回退到默认规则
+            // 优先使用配置中的指令形式(设置里改名/加别名后同步); 缺失时按类型码兜底
             const cmd = (help.type_cmd && help.type_cmd[key])
-                || (key === 's' ? '-S'
-                    : (key.length > 1 && !/^h[1-6]+$/.test(key)) ? '--' + key
+                || ((key.length > 1 && !/^h[1-6]+$/.test(key)) ? '--' + key
                     : '-' + key);
             block_type += `[${this.code(escapeHtml(cmd))}${escapeHtml(String(val))}],`;
         });
@@ -5930,6 +5918,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         const errors = (help.errors && help.errors.length)
             ? `<tr><td style="color: var(--b3-theme-error);">指令提示:</td><td colspan="3" style="color: var(--b3-theme-error);">${help.errors.map(escapeHtml).join('<br>')}</td></tr>`
             : "";
+        // 只显示查询正文: 搜索方式已在上方说明, 不再重复 -w/-q/-s/-r 前缀
+        const converted = help.val ? this.code(escapeHtml(String(help.val))) : "空";
         return `
         <span style="font-size: 16px; font-weight:bold">简搜: 解析结果 </span><span> (温馨提示: 拖动方框右下角可以调整显示区域)</span>
         <table id="simpleSearchAnalysisResTable"><tbody>
@@ -5940,7 +5930,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         <tr><td>时间过滤:</td><td colspan="3">${custom_time}</td></tr>
         <tr><td>分组排序:</td><td colspan="3">${escapeHtml(String(help.group_desc || "—"))} | ${escapeHtml(String(help.sort ?? ""))}</td></tr>
         ${errors}
-        <tr><td style="min-width:70px;">转换结果:</td><td colspan="3">${this.code(escapeHtml(String(help.ret_str ?? "")))}</td></tr>
+        <tr><td style="min-width:70px;">转换结果:</td><td colspan="3">${converted}</td></tr>
         </tbody></table>`
     }
     // 显示解析结果

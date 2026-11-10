@@ -148,6 +148,32 @@ test('指令补全: 时间表达式逐步引导', () => {
     assert.deepEqual(labels(done), ['&', '|', '␣']);
 });
 
+test('指令补全: 时间 kv 值改名后按新名称引导', () => {
+    const cfg = get_default_command_config();
+    const ct = cfg.categories.find(c => c.id === 'time').items.find(i => i.id === 'ct');
+    ct.comms = [{ form: 'multi', content: 'ct' }, { form: 'kv', key: '--time=', value: 'created' }];
+
+    const field = complete('--time=', '--time='.length, cfg);
+    assert.deepEqual(labels(field), ['created', 'ut']);
+    assert.equal(field.candidates[0].name, '创建时间');
+
+    const op = complete('--time=created', '--time=created'.length, cfg);
+    assert.deepEqual(labels(op), ['<', '>', '=']);
+    assert.equal(op.candidates[0].insert, '--time=created<');
+});
+
+test('多值链: 可逗号多值的 kv key 跟随配置', () => {
+    const cfg = {
+        categories: [
+            { id: 'type', name: '类型', items: [{ id: 'd', name: '文档', kind: 'type', code: 'd', comms: [{ form: 'kv', key: '--t=', value: 'd' }] }] },
+            { id: 'sort', name: '排序', items: [{ id: 'type', name: '按类型', kind: 'sort', value: 0, comms: [{ form: 'kv', key: '--s=', value: 'type' }] }] },
+            { id: 'other', name: '其他', items: [{ id: 'x', name: 'X', kind: 'ext', comms: [{ form: 'kv', key: '--x=', value: '1' }] }] },
+        ],
+    };
+    const keys = JSON.parse(JSON.stringify(api._get_chain_kv_keys(cfg))).sort();
+    assert.deepEqual(keys, ['--s=', '--t=']);
+});
+
 test('指令补全: kv 多值链(块类型/排序)', () => {
     // 排序: 选过的值隐藏, 末尾提供空格结束项
     const sort_chain = complete('--sort=type,');
