@@ -134,6 +134,17 @@ function unescapeHtml(str) {
         .replace(/&amp;/g, "&");
 }
 
+// 用思源的非阻塞 snackbar 提示替代 alert, 避免弹窗阻塞界面
+// showMessage 把内容按 HTML 插入, 这里先转义用户可能带入的字符
+function show_plugin_message(text, type = 'error') {
+    const message = escapeHtml(String(text));
+    if (siyuan && typeof siyuan.showMessage === 'function') {
+        siyuan.showMessage(message, 6000, type);
+        return;
+    }
+    mylog_warn('showMessage 不可用', text);
+}
+
 // 转义 SQL 字符串字面量中的单引号
 function escapeSqlString(str) {
     return String(str).replace(/'/g, "''");
@@ -4522,12 +4533,12 @@ class SimpleSearchHZ extends siyuan.Plugin {
             try {
                 cfg = JSON.parse(json_ele.value);
             } catch (e) {
-                alert('指令配置 JSON 解析失败: ' + e.message);
+                show_plugin_message('指令配置 JSON 解析失败: ' + e.message);
                 return false;
             }
             const err = validate_command_config(cfg);
             if (err) {
-                alert('指令配置校验失败: ' + err);
+                show_plugin_message('指令配置校验失败: ' + err);
                 return false;
             }
             this.g_setting.command_config = cfg;

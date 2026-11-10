@@ -47,7 +47,12 @@ function load_plugin(options = {}) {
         exports: {},
         require(name) {
             if (name === 'siyuan') {
-                return { Plugin: class {}, Dialog: class {}, Setting: class {} };
+                return {
+                    Plugin: class {}, Dialog: class {}, Setting: class {},
+                    showMessage(message, timeout, type) {
+                        sandbox.__show_messages.push({ message, timeout, type });
+                    },
+                };
             }
             throw new Error(`unexpected require: ${name}`);
         },
@@ -79,12 +84,14 @@ function load_plugin(options = {}) {
         clearTimeout,
         clearInterval,
         requestAnimationFrame: (callback) => callback && callback(),
-        alert: () => {},
+        alert: (...args) => { sandbox.__alert_calls.push(args); },
         fetch(url, init) {
             sandbox.__fetch_calls.push({ url, init });
             return Promise.resolve({ code: 0 });
         },
         __fetch_calls: [],
+        __show_messages: [],
+        __alert_calls: [],
     };
 
     vm.createContext(sandbox);
