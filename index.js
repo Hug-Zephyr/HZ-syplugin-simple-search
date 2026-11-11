@@ -486,10 +486,12 @@ function migrate_command_config(stored) {
 
 // 一个指令项在帮助/解析面板中的展示形式
 // 路径、时间、排除关键词这类前缀指令, 多字符形式后面还要接内容
-function get_item_display_forms(item) {
+// 指令项的展示形式; 传入 only_comm 时只返回该条 comm 的展示形式
+function get_item_display_forms(item, only_comm = null) {
     const forms = [];
     const add = (s) => { if (s && !forms.includes(s)) forms.push(s); };
     for (const c of (item.comms || [])) {
+        if (only_comm && c !== only_comm) continue;
         if (!is_command_form_allowed(item, c.form)) continue;
         if (c.form === 'single') {
             add('-' + c.content);
@@ -536,6 +538,18 @@ function get_command_complete(cfg, input, caret, manual = false, sort_ctx = null
                 return !f.key.startsWith('--') && f.key.startsWith(token);
             });
             if (has_custom) return _get_key_candidates(model, token_info, sort_ctx);
+        }
+        // 默认特殊多字符/路径指令: 输入 2 个字符后按前缀自动弹出
+        // 例如 no 弹出 nog<, ct 弹出 ct/ct</ct>
+        const can_auto = token && (token.length >= 2 || !/^[A-Za-z0-9_]/.test(token));
+        if (can_auto) {
+            const all = get_all_command_candidates(cfg, input, caret, sort_ctx);
+            if (all && !all.insert_at_caret) {
+                // 已经输入完整且只剩自身时不再弹, 避免列表只有一个和输入相同的项
+                const only_self = all.candidates.length === 1 &&
+                    all.candidates[0].insert === token && all.candidates[0].label === token;
+                if (!only_self) return all;
+            }
         }
         return null;
     }
@@ -584,9 +598,42 @@ function get_all_command_candidates(cfg, input, caret, sort_ctx = null) {
             candidates.push(c);
         }
     }
+    // 默认配置里的特殊多字符指令和路径前缀: 只在这里(全部指令)列出
+    for (const form of [...model.special_forms, ...model.path_forms]) {
+        if (seen.has(form.token)) continue;
+        seen.add(form.token);
+        candidates.push({
+            kind: 'multi',
+            insert: form.token,
+            label: get_item_display_forms(form.item, form.comm)[0] || form.token,
+            name: form.item.name || '',
+            hint: form.cat.name || '',
+            close: true,
+            // 需要后接内容的(ct、ut、!/路径前缀)不加空格, 让用户继续输入
+            trailing_space: !is_prefix_item(form.item),
+            sort_key: form.sort_key,
+        });
+    }
     if (!candidates.length) return null;
     const sorted = _sort_completion_list(candidates, sort_ctx);
     if (!sorted.length) return null;
+    // 光标前有完整 token 时先按前缀过滤(如输入 nog + Tab -> nog</nog>);
+    // 没有匹配时保持原来的“在光标处插入全部指令”
+    const token_info = _get_completion_token(input, caret);
+    const typed = token_info && token_info.at_end ? token_info.token : '';
+    if (typed) {
+        const matched = sorted.filter(c => c.insert.startsWith(typed) || c.label.startsWith(typed));
+        if (matched.length) {
+            return {
+                mode: 'all',
+                candidates: matched,
+                default_index: 0,
+                token_start: token_info.start,
+                token_end: token_info.end,
+                insert_at_caret: false,
+            };
+        }
+    }
     return {
         mode: 'all',
         candidates: sorted,
@@ -651,7 +698,9 @@ function _build_completion_model(cfg) {
         singles: [],        // 非模式分类的单字符
         mode_singles: [],   // 模式分类的单字符
         modes: [],          // 模式指令, 用于判断是否已进入模式查询
-        forms: [],          // 按配置顺序的多字符/kv 形式
+        forms: [],          // 按配置顺序的多字符/kv 形式(-- 菜单使用)
+        special_forms: [],  // 默认配置里的非 -- 多字符指令(除路径), 只进 Tab 全部和自定义排序
+        path_forms: [],     // 路径前缀(/ // -/), 只进 Tab 全部列表
         kv_groups: new Map(), // key -> [{key,value,item,cat}]
         single_map: new Map(), // 可组合单字符 -> entry
         initial_singles: [],
@@ -675,8 +724,15 @@ function _build_completion_model(cfg) {
                 } else if (c.form === 'multi') {
                     if (cat.id === 'mode') {
                         model.modes.push({kind: 'token', value: c.content});
-                    } else if (c.content.startsWith('--') || !_get_default_multi_tokens().has(c.content)) {
-                        model.forms.push({type: 'multi', token: c.content, item, cat, idx: idx++, sort_key: `multi:${cat.id}:${item_key}:${c.content}`});
+                    } else {
+                        const form = {type: 'multi', token: c.content, item, cat, comm: c, idx: idx++, sort_key: `multi:${cat.id}:${item_key}:${c.content}`};
+                        if (c.content.startsWith('--') || !_get_default_multi_tokens().has(c.content)) {
+                            model.forms.push(form);
+                        } else if (item.kind === 'path') {
+                            model.path_forms.push(form);
+                        } else {
+                            model.special_forms.push(form);
+                        }
                     }
                 } else if (c.form === 'kv') {
                     const entry = {key: c.key, value: c.value || '', item, cat, idx: idx++};
@@ -817,6 +873,19 @@ function get_completion_entries(cfg) {
             });
         }
     }
+    // 内置特殊多字符指令(ct/g</type< 等)参与“多字符与 kv key”分组;
+    // 路径前缀只在 Tab 全部列表出现, 不参与自定义排序
+    for (const form of model.special_forms) {
+        add({
+            key: form.sort_key,
+            kind: 'multi',
+            label: form.token,
+            name: form.item.name || '',
+            group: form.cat.name || '',
+            tag: form.cat.name || '',
+            scope: 'base',
+        });
+    }
     return entries;
 }
 
@@ -876,7 +945,7 @@ function get_completion_usage_keys(cfg, query) {
     for (const e of model.initial_singles) {
         if (!single_by_ch.has(e.ch)) single_by_ch.set(e.ch, e);
     }
-    const multi_forms = model.forms.filter(f => f.type === 'multi');
+    const multi_forms = [...model.forms, ...model.special_forms].filter(f => f.type === 'multi');
     const kv_keys = [...model.kv_groups.keys()].sort((a, b) => b.length - a.length);
     const tokens = String(query || '').split(/\s+/).filter(Boolean);
     for (const token of tokens) {
@@ -3594,7 +3663,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     ${row_switch('show_recognized', '显示“简搜已识别”摘要', '在搜索页顶部工具栏显示被插件识别并消费的指令 token, 悬浮可查看含义; 关闭后不显示; 辅助区域隐藏时也不显示')}
                 </div>
                 <div class="simpleSearchSettingPane" data-pane="history">
-                    ${row_select('history_auto', '自动显示历史记录', '输入内容时自动显示匹配到的历史记录<br>关闭: 不自动显示, 需要时用 alt+↓ 手动调出<br>智能显示: 存在可用的历史候选时显示(与输入完全相同的项不计入)<br>总是显示: 只要输入不为空就显示, 首行为当前输入', [
+                    ${row_select('history_auto', '自动显示历史记录', '推荐: 选“关闭”并开启「历史列表快捷键 (Alt+↓)」, 需要时手动调出, 避免输入时频繁弹出<br>输入内容时自动显示匹配到的历史记录<br>关闭: 不自动显示, 需要时用 alt+↓ 手动调出<br>智能显示: 存在可用的历史候选时显示(与输入完全相同的项不计入)<br>总是显示: 只要输入不为空就显示, 首行为当前输入', [
                         {value: 'close',  label: '关闭'},
                         {value: 'smart',  label: '智能显示'},
                         {value: 'always', label: '总是显示'},
@@ -3606,7 +3675,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     ${row_number('history_rows_normal', '历史记录行数上限(拦截关闭)', '拦截搜索关闭, 历史列表只作建议层时, 最多显示的行数; 0 表示只按窗口高度限制')}
                 </div>
                 <div class="simpleSearchSettingPane" data-pane="completion">
-                    ${row_switch('command_complete', '自动显示指令补全', '开启后: 输入 - 时列出单字符指令, 输入 -- 时列出多字符指令和 kv key, 输入 kv key 后列出配置中的可选值<br>关闭后: 输入时不再自动弹出, 仍可用 Tab 快捷键手动打开(需开启「指令补全快捷键 (Tab)」)<br>选择指令期间会暂停搜索; -w/-q/-s/-r 模式指令之后不补全')}
+                    ${row_switch('command_complete', '自动显示指令补全', '推荐: 关闭本项, 配合「指令补全快捷键 (Tab)」按需手动打开, 避免输入时频繁弹窗<br>开启后: 输入 - 时列出单字符指令, 输入 -- 时列出多字符指令和 kv key, 输入 kv key 后列出配置中的可选值<br>关闭后: 输入时不再自动弹出, 仍可用 Tab 快捷键手动打开(需开启「指令补全快捷键 (Tab)」)<br>选择指令期间会暂停搜索; -w/-q/-s/-r 模式指令之后不补全')}
                     ${row_switch('command_shortcut', '指令补全快捷键 (Tab)', '开启后: Tab 显示/隐藏指令补全列表(与“自动显示指令补全”开关无关, 自动弹出关闭时仍可手动调出), 没有补全候选时列出全部指令(回车插入); 手动状态只在当前搜索页有效, 不会修改任何设置<br>关闭后: 不使用该快捷键')}
                     ${row_number('command_rows', '补全菜单行数上限', '指令补全列表最多显示的行数; 0 表示只按窗口高度限制<br>自动显示和 Tab 快捷键都关闭时不可用')}
                     ${row_select('completion_sort', '补全排序方式', '控制单字符、多字符、kv key 和 kv 值的补全顺序<br>设置顺序: 按指令配置的顺序<br>使用次数: 按搜索页会话统计的次数排序(页面关闭时结算), 次数相同按设置顺序<br>自定义: 按下方分组列表的顺序<br>自动显示和 Tab 快捷键都关闭时不可用', [
@@ -4853,6 +4922,11 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.insert_assist_btn()
     }
     hidden_search_history_list() {
+        // 手动打开(Alt+↓)后关闭列表: 结束本次手动会话, 当前搜索页继续输入不再自动弹出
+        if (this.is_show_history_list()) {
+            const state = this.get_page_suggestion_state();
+            if (state && state.history === 'show') state.history = 'hide';
+        }
         const history_ul = this.get_search_history_ul();
         const box = this.get_suggestion_box();
         this.suggestion_mode = null;
@@ -5409,6 +5483,9 @@ class SimpleSearchHZ extends siyuan.Plugin {
     }
 
     hide_command_completion() {
+        // 手动打开(Tab)后关闭列表: 结束本次手动会话, 当前搜索页继续输入不再自动弹出
+        const state = this.get_page_suggestion_state();
+        if (state && state.command === 'show') state.command = 'hide';
         clearTimeout(this.history_timer_id);
         this.hidden_search_history_list();
         this.command_index = 0;

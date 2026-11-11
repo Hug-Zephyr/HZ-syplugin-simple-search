@@ -126,3 +126,46 @@ test('页面切换: reset_page_state 清理跨页状态', () => {
     assert.equal(context.click_res_flag, false);
     assert.equal(context._preview_highlight_token, 4);
 });
+
+test('补全: 手动打开后关闭列表, 当前页不再自动弹出', () => {
+    const hide = plugin_class.prototype.hide_command_completion;
+    const manual_state = { history: null, command: 'show' };
+    const ctx = {
+        history_timer_id: 0,
+        command_index: 2,
+        hidden_search_history_list() {},
+        get_page_suggestion_state: () => manual_state,
+    };
+    hide.call(ctx);
+    assert.equal(manual_state.command, 'hide');
+
+    // 非手动打开(自动显示)时关闭列表, 不改变页面状态
+    const auto_state = { history: null, command: null };
+    ctx.get_page_suggestion_state = () => auto_state;
+    hide.call(ctx);
+    assert.equal(auto_state.command, null);
+});
+
+test('历史: 手动打开后关闭列表, 当前页不再自动弹出', () => {
+    const hide = plugin_class.prototype.hidden_search_history_list;
+    const manual_state = { history: 'show', command: null };
+    const ctx = {
+        suggestion_mode: 'history',
+        command_completion: null,
+        is_show_history_list: () => true,
+        get_page_suggestion_state: () => manual_state,
+        get_search_history_ul: () => null,
+        get_suggestion_box: () => null,
+        set_suggestion_open() {},
+        update_list_hint() {},
+    };
+    hide.call(ctx);
+    assert.equal(manual_state.history, 'hide');
+
+    // 非手动打开(自动显示)时关闭列表, 不改变页面状态
+    const auto_state = { history: null, command: null };
+    ctx.get_page_suggestion_state = () => auto_state;
+    ctx.suggestion_mode = 'history';
+    hide.call(ctx);
+    assert.equal(auto_state.history, null);
+});

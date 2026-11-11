@@ -338,3 +338,66 @@ test('使用次数: 搜索页会话记录, 关闭时每个指令 +1', () => {
     assert.deepEqual(counts, [1, 1]);
     assert.equal(ctx._completion_usage_dirty, true);
 });
+
+test('全部指令: 包含内置多字符与路径前缀, -- 菜单不受影响', () => {
+    const all = get_all_command_candidates(CFG, '', 0);
+    const all_labels = labels(all);
+    for (const label of [
+        'ct>2025', 'ut>2025',
+        'g<', 'g>', 'nog<', 'nog>',
+        'type<', 'type>', 'cont<', 'cont>',
+        'ct<', 'ct>', 'ut<', 'ut>',
+        '!关键词', '||',
+        '/路径', '//路径', '-/路径',
+    ]) {
+        assert.ok(all_labels.includes(label), `缺少 ${label}`);
+    }
+
+    // 示例标签只用于展示, 实际插入前缀本体
+    const item = (label) => all.candidates.find(c => c.label === label);
+    assert.equal(item('ct>2025').insert, 'ct');
+    assert.equal(item('!关键词').insert, '!');
+    assert.equal(item('/路径').insert, '/');
+    assert.equal(item('//路径').insert, '//');
+    assert.equal(item('g<').insert, 'g<');
+    // 需要后接内容的项不加空格
+    assert.equal(item('ct>2025').trailing_space, false);
+    assert.equal(item('!关键词').trailing_space, false);
+    assert.equal(item('/路径').trailing_space, false);
+    assert.equal(item('g<').trailing_space, true);
+
+    // -- 菜单只列 -- 形式的指令
+    const dash_labels = labels(complete('--'));
+    for (const label of ['ct', 'ct>2025', 'g<', '!', '/路径']) {
+        assert.equal(dash_labels.includes(label), false, `-- 菜单不应出现 ${label}`);
+    }
+});
+
+test('全部指令: 输入前缀后按 Tab 过滤并替换该 token', () => {
+    const nog = get_all_command_candidates(CFG, 'nog', 3);
+    assert.deepEqual(labels(nog), ['nog<', 'nog>']);
+    assert.equal(nog.insert_at_caret, false);
+    assert.equal(nog.token_start, 0);
+    assert.equal(nog.token_end, 3);
+
+    const ct = get_all_command_candidates(CFG, 'ct', 2);
+    assert.deepEqual(labels(ct), ['ct>2025', 'ct<', 'ct>']);
+
+    // 没有匹配时回退为在光标处插入全部指令
+    const none = get_all_command_candidates(CFG, 'xyz', 3);
+    assert.equal(none.insert_at_caret, true);
+    assert.ok(labels(none).includes('nog<'));
+});
+
+test('自动补全: 特殊多字符指令输入 2 个字符后按前缀弹出', () => {
+    assert.deepEqual(labels(complete('no')), ['nog<', 'nog>']);
+    assert.deepEqual(labels(complete('ty')), ['type<', 'type>']);
+    assert.deepEqual(labels(complete('ct')), ['ct>2025', 'ct<', 'ct>']);
+    assert.deepEqual(labels(complete('!')), ['!关键词']);
+    assert.deepEqual(labels(complete('/')), ['/路径', '//路径']);
+
+    // 普通词、单字母、输入已完整且只剩自身时不弹
+    assert.equal(complete('g'), null);
+    assert.equal(complete('xyz'), null);
+    assert.equal(complete('ct<'), null);
+});

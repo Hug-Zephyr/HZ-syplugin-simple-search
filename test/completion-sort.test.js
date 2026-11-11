@@ -205,11 +205,20 @@ test('补全排序: 自定义多字符形式进入自定义顺序和次数统计
     assert.ok(groups.find(g => g.id === 'base').entries.some(e => e.label === 'xxcallout'));
     // 搜索时计入使用次数
     assert.ok(get_completion_usage_keys(cfg, 'xxcallout 中国').includes(entry.key));
-    // 内置特殊多字符(ct/g</!)不会因为这次改动进入补全列表
+    // 内置特殊多字符(ct/g</!)也进入补全列表和“多字符与 kv key”分组
     const labels = entries.map(e => e.label);
-    assert.equal(labels.includes('ct'), false);
-    assert.equal(labels.includes('g<'), false);
-    assert.equal(labels.includes('!'), false);
+    assert.ok(labels.includes('ct'));
+    assert.ok(labels.includes('g<'));
+    assert.ok(labels.includes('!'));
+    const base_labels = groups.find(g => g.id === 'base').entries.map(e => e.label);
+    assert.ok(base_labels.includes('ct'));
+    assert.ok(base_labels.includes('g<'));
+    assert.ok(base_labels.includes('!'));
+    const ct_entry = entries.find(e => e.label === 'ct');
+    assert.ok(get_completion_usage_keys(cfg, 'ct>2025 中国').includes(ct_entry.key));
+    // 路径前缀不进入自定义顺序
+    assert.equal(labels.includes('/'), false);
+    assert.equal(labels.includes('//'), false);
 });
 
 test('补全排序: 自定义 kv key 进入自定义顺序和次数统计', () => {
