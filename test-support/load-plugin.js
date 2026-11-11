@@ -14,6 +14,7 @@ function load_plugin(options = {}) {
     source += `\nmodule.exports.__test = {
         search_translator,
         escapeHtml,
+        firstRegexMatchInText,
         unescapeHtml,
         matchHistory,
         get_default_command_config,

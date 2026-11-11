@@ -115,6 +115,24 @@ function getElementAtCursor() {
     return null; // 如果没有选中内容或光标位置无效
 }
 
+// 在一段文本里找正则的第一个非空匹配; 兼容开头内联标志 (?i)/(?m)/(?s)
+function firstRegexMatchInText(text, pattern) {
+    if (!text || !pattern) return null;
+    let source = pattern;
+    let flags = '';
+    const inline = source.match(/^\(\?([ims]+)\)/);
+    if (inline) {
+        flags = inline[1];
+        source = source.slice(inline[0].length);
+    }
+    try {
+        const m = new RegExp(source, flags).exec(text);
+        return m && m[0] ? { index: m.index, text: m[0] } : null;
+    } catch (e) {
+        return null;
+    }
+}
+
 function escapeHtml(unsafe) {
     return unsafe
         .replace(/&/g, "&amp;") // 转义&符号
@@ -6578,9 +6596,27 @@ class SimpleSearchHZ extends siyuan.Plugin {
             });
         }
     }
-    handleCursorPosition(element, keywords, type) {
+    // 用用户正则找到元素文本中的第一个非空匹配(用于光标定位)
+    // 按文本节点逐个匹配, 与高亮逻辑保持一致; 返回相对整个元素的偏移
+    findFirstRegexMatch(root, pattern) {
+        if (!root || !pattern) return null;
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        let offset = 0;
+        let node;
+        while ((node = walker.nextNode())) {
+            const text = node.textContent || '';
+            const match = firstRegexMatchInText(text, pattern);
+            if (match) return { index: offset + match.index, text: match.text };
+            offset += text.length;
+        }
+        return null;
+    }
+    handleCursorPosition(element, keywords, type, regex_pattern = null) {
         // 参数校验
-        if (!element || !keywords || !Array.isArray(keywords) || keywords.length === 0) {
+        if (!element || !Array.isArray(keywords)) {
+            return;
+        }
+        if (!regex_pattern && keywords.length === 0) {
             return;
         }
 
@@ -6596,15 +6632,23 @@ class SimpleSearchHZ extends siyuan.Plugin {
 
         const textContent = element.textContent;
 
-        // 查找最先出现的关键词
+        // 查找最先出现的关键词; 正则模式取第一个非空匹配
         let firstMatch = null;
         let firstIndex = -1;
 
-        for (const keyword of keywords) {
-            const index = textContent.indexOf(keyword);
-            if (index !== -1 && (firstIndex === -1 || index < firstIndex)) {
-                firstIndex = index;
-                firstMatch = keyword;
+        if (regex_pattern) {
+            const match = this.findFirstRegexMatch(element, regex_pattern);
+            if (match) {
+                firstMatch = match.text;
+                firstIndex = match.index;
+            }
+        } else {
+            for (const keyword of keywords) {
+                const index = textContent.indexOf(keyword);
+                if (index !== -1 && (firstIndex === -1 || index < firstIndex)) {
+                    firstIndex = index;
+                    firstMatch = keyword;
+                }
             }
         }
 
@@ -6688,8 +6732,13 @@ class SimpleSearchHZ extends siyuan.Plugin {
         if (!this.click_res_flag) return;
         const g_setting = this.g_setting;
         if (!(g_setting.cursor_position != 'none' || g_setting.is_highlight_open || g_setting.is_blink_open)) return
-        const keywords = this.query?.keywords;
-        if (!keywords) return;
+        const query = this.query;
+        const is_regex = query?.type === '-r';
+        // -q 的词在 preview_keywords 里; -r 按正则匹配, 不依赖 keywords
+        const keywords = (query?.help?.preview_keywords?.length
+            ? query.help.preview_keywords
+            : query?.keywords) || [];
+        if (!is_regex && !keywords.length) return;
 
         mylog('点击了搜索结果, 开始高亮', data);
         this.click_res_flag = false;
@@ -6700,7 +6749,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             const cursor_ele = getElementAtCursor()?.closest('[data-node-id]');
             if (!cursor_ele) return;
 
-            this.handleCursorPosition(cursor_ele, keywords, g_setting.cursor_position)
+            this.handleCursorPosition(cursor_ele, keywords, g_setting.cursor_position, is_regex ? query.val : null)
 
             if (g_setting.is_blink_open) {
                 // 闪烁当前块
@@ -6713,10 +6762,12 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 const search_preview = cursor_ele;
                 // const search_preview = cursor_ele ? cursor_ele : data.detail.protyle.element;
                 // 获取代码块里面是否有关键词, 为了之后是否延时高亮
-                let has_hljs = Array.from(search_preview.querySelectorAll('.hljs>div[spellcheck]'))
-                .some(ele => keywords.some(
-                    keyword => ele.innerText.includes(keyword)
-                ));
+                let has_hljs = is_regex
+                    ? !!search_preview.querySelector('.hljs')
+                    : Array.from(search_preview.querySelectorAll('.hljs>div[spellcheck]'))
+                        .some(ele => keywords.some(
+                            keyword => ele.innerText.includes(keyword)
+                        ));
                 setTimeout(() => { // 代码块会延时渲染, 如果有代码块, 也等待300毫秒(思源就这么做的)
                     // 创建 createTreeWalker 迭代器，用于遍历文本节点，保存到一个数组
                     const tree_walker = document.createTreeWalker(search_preview, NodeFilter.SHOW_TEXT);
@@ -6728,12 +6779,10 @@ class SimpleSearchHZ extends siyuan.Plugin {
                         }
                         current_node = tree_walker.nextNode();
                     }
-                    const previewRanges = [];
-                    keywords.forEach((keyword) => {
-                        const ranges = this.highlightKeywords(search_preview_text_nodes, keyword); // 收集搜索预览的高亮范围
-                        previewRanges.push(...ranges);
-                    });
-                    const searchPreviewHighlight = new Highlight(...previewRanges.flat());
+                    const previewRanges = is_regex
+                        ? this.highlightRegexKeywords(search_preview_text_nodes, query.val)
+                        : keywords.flatMap((keyword) => this.highlightKeywords(search_preview_text_nodes, keyword));
+                    const searchPreviewHighlight = new Highlight(...previewRanges);
                     CSS.highlights.set("highlight-keywords-search-preview", searchPreviewHighlight)
                     // 高亮后, 点击就取消高亮
                     document.addEventListener('click', () => this.clear_highlight(), {once: true});
