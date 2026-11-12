@@ -28,14 +28,11 @@
 
 /* 列表打开时, 输入框临时显示外壳, 与列表拼成一个整体 */
 /* 用 inset box-shadow 画上/左/右三条边, 不加 bottom, 避免改变输入框高度和出现分隔线 */
+/* 左内边距/margin 由设置「列表包含历史图标」决定, 见 _get_list_style_css 注入 */
 #searchInput.HZ-search-suggestion-open {
     background-color: var(--b3-menu-background);
     border: 0;
     border-radius: var(--b3-border-radius-b) var(--b3-border-radius-b) 0 0;
-    /* 面板整体右移图标区宽度: 图标/箭头留在面板外, 文字位置仍是 36+8=44px */
-    margin-left: 36px;
-    width: calc(100% - 36px);
-    padding-left: 8px !important;
     box-shadow:
         inset 0 1px 0 var(--b3-theme-surface-lighter),
         inset 1px 0 0 var(--b3-theme-surface-lighter),
@@ -43,10 +40,6 @@
 }
 #searchInput.HZ-search-suggestion-open:hover {
     background-color: var(--b3-menu-background);
-}
-/* 原生图标容器宽 42px, 收窄到面板左移量, 避免可点击区盖住面板边缘 */
-#searchHistoryBtn {
-    width: 36px;
 }
 
 /* SQL 模式输入框: 随内容自动增高, 平时保持普通搜索框高度 */
@@ -97,13 +90,11 @@
     width: 100%;
     box-sizing: border-box;
     padding: 8px 0;
-    /* 高度受限时在列表内部滚动, 避免文字溢出背景 */
+    /* 高度受限时在列表内部滚动, 避免文字溢出背景;
+       滚动条用思源默认样式(细, 悬浮滚动条时变粗), 只固定槽位防止内容宽度跳动 */
     overflow-y: auto;
     overflow-x: hidden;
-    /* 常显细滚动条, 提示内容可滚动 */
-    scrollbar-width: thin;
     scrollbar-gutter: stable;
-    scrollbar-color: var(--b3-scroll-color, var(--b3-border-color)) transparent;
     /* 高亮匹配到的关键词 */
     .HZ-search-history-highlight {
         font-weight:bold;
@@ -116,6 +107,24 @@
     /* 快速点击关闭按钮的时候, 不选中文字 */
     li {
         user-select: none;
+    }
+    /* 条目铺满列表宽度: 去掉原生 b3-list-item 的圆角和左右外距;
+       左内边距让文字与搜索框文字对齐并和左侧蓝条拉开距离,
+       具体值由设置「列表包含历史图标」决定(--HZ-sp-list-text-offset) */
+    li.b3-list-item {
+        margin: 0;
+        border-radius: 0;
+        padding-left: var(--HZ-sp-list-text-offset, 44px);
+    }
+    /* 悬浮: 铺满的浅背景, 不加左侧竖条 */
+    li.b3-list-item:hover {
+        background-color: var(--b3-list-hover);
+    }
+    /* 选中: 铺满的浅背景 + 左侧内嵌蓝条; 用 inset 阴影画条, 不占布局宽度, 文字不位移 */
+    li.b3-list-item.b3-list-item--focus,
+    li.b3-list-item.b3-list-item--focus:hover {
+        background-color: var(--b3-list-hover);
+        box-shadow: inset 3px 0 0 var(--b3-theme-primary);
     }
     /* 指令补全的列 */
     .HZ-search-command-token {
@@ -135,17 +144,6 @@
         opacity: 0.55;
         flex-shrink: 0;
     }
-}
-
-#simpleSearchHistoryList::-webkit-scrollbar {
-    width: 8px;
-}
-#simpleSearchHistoryList::-webkit-scrollbar-thumb {
-    background-color: var(--b3-scroll-color, var(--b3-border-color));
-    border-radius: 4px;
-}
-#simpleSearchHistoryList::-webkit-scrollbar-track {
-    background: transparent;
 }
 
 /* 顶部工具栏: 简搜识别摘要 */

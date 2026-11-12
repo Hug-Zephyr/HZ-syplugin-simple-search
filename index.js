@@ -3170,6 +3170,8 @@ function get_default_plugin_settings() {
         command_rows      : 15,             // 指令补全菜单最多显示的行数, 0=只按窗口高度限制
         history_rows_intercept: 15,         // 拦截搜索开启时历史列表最多显示的行数, 0=不限制
         history_rows_normal   : 4,          // 拦截搜索关闭时历史列表最多显示的行数, 0=不限制
+        list_include_icon : true,           // 历史/补全列表是否包含搜索框左侧的历史图标区域
+        list_selected_style: 'bar',         // 历史/补全列表选中样式: bar-左侧蓝条, classic-圆角浮起
         command_config    : get_default_command_config(), // 指令配置(分类/key/三种形式)
     };
 }
@@ -3603,10 +3605,53 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 }
             `;
         }
-        else {
-            return;
+        // 列表相关的可选样式, 与搜索结果树样式互相独立, 无论 tree_style 命中与否都要注入
+        css += this._get_list_style_css();
+        if (css) this.css = js_insert_css(css);
+    }
+    // 生成历史/补全列表的外观 CSS: 是否包含历史图标、选中样式
+    _get_list_style_css() {
+        const include_icon = this.g_setting.list_include_icon !== false;
+        // 选中样式: bar-蓝条(默认), classic-圆角浮起
+        const selected = this.g_setting.list_selected_style || 'bar';
+        // 条目文字左内边距: 包含图标时与搜索框文字(图标区36+输入区8)对齐;
+        // 不包含时面板已右移让开图标区, 无需对齐, 给 16px 让文字与蓝条/圆角边框留有呼吸感
+        const text_offset = include_icon ? 44 : 16;
+        let css = `
+            :root { --HZ-sp-list-text-offset: ${text_offset}px; }
+        `;
+        if (!include_icon) {
+            // 不包含图标: 面板整体右移图标区宽度, 图标/箭头留在面板外;
+            // 输入文字内边距与条目缩进一致(16px), 保证搜索框文字与列表条目文字对齐
+            css += `
+                #searchInput.HZ-search-suggestion-open {
+                    margin-left: 36px;
+                    width: calc(100% - 36px);
+                    padding-left: ${text_offset}px !important;
+                }
+            `;
         }
-        this.css = js_insert_css(css);
+        if (selected === 'classic') {
+            // 经典: 恢复圆角浮起, 与边界留距, 无左蓝条;
+            // 左内边距要扣掉 8px 的左边距, 文字才能与搜索框文字对齐
+            const classic_offset = text_offset - 8;
+            css += `
+                #simpleSearchHistoryList li.b3-list-item {
+                    margin: 4px 8px;
+                    border-radius: var(--b3-border-radius);
+                    padding-left: ${classic_offset}px;
+                }
+                #simpleSearchHistoryList li.b3-list-item:hover {
+                    background-color: var(--b3-list-hover);
+                }
+                #simpleSearchHistoryList li.b3-list-item.b3-list-item--focus,
+                #simpleSearchHistoryList li.b3-list-item.b3-list-item--focus:hover {
+                    background-color: var(--b3-theme-primary-lightest);
+                    box-shadow: none;
+                }
+            `;
+        }
+        return css;
     }
     // 打开插件的设置面板(左侧分类 + 右侧配置)
     openSetting() {
@@ -3693,6 +3738,11 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     ${row_switch('intercept_search', '拦截搜索', '开启: 历史列表显示期间暂停搜索, 结果区保持上一次的结果<br>关闭: 历史列表只作为输入框下方的建议层, 搜索照常实时执行')}
                     ${row_number('history_rows_intercept', '历史记录行数上限(拦截开启)', '拦截搜索开启, 历史列表显示期间暂停搜索时, 最多显示的行数; 0 表示只按窗口高度限制')}
                     ${row_number('history_rows_normal', '历史记录行数上限(拦截关闭)', '拦截搜索关闭, 历史列表只作建议层时, 最多显示的行数; 0 表示只按窗口高度限制')}
+                    ${row_switch('list_include_icon', '列表包含搜索框左侧历史图标', '开启后: 历史/补全列表从搜索框最左边缘开始, 盖住左侧历史图标区域, 条目文字自动缩进与搜索框文字对齐<br>关闭后: 面板右移让开图标区, 图标和箭头始终可见')}
+                    ${row_select('list_selected_style', '列表选中样式', '控制历史/补全列表选中(键盘移动)和悬浮条目的外观<br>左侧蓝条: 条目铺满列表宽度, 选中项左侧显示蓝色竖条<br>圆角浮起: 条目与边界留距、带圆角, 选中项用浅色背景', [
+                        {value: 'bar',     label: '左侧蓝条（默认）'},
+                        {value: 'classic', label: '圆角浮起'},
+                    ])}
                 </div>
                 <div class="simpleSearchSettingPane" data-pane="completion">
                     ${row_switch('command_complete', '自动显示指令补全', '推荐: 关闭本项, 配合「指令补全快捷键 (Tab)」按需手动打开, 避免输入时频繁弹窗<br>开启后: 输入 - 时列出单字符指令, 输入 -- 时列出多字符指令和 kv key, 输入 kv key 后列出配置中的可选值<br>关闭后: 输入时不再自动弹出, 仍可用 Tab 快捷键手动打开(需开启「指令补全快捷键 (Tab)」)<br>选择指令期间会暂停搜索; -w/-q/-s/-r 模式指令之后不补全')}
