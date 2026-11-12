@@ -1761,8 +1761,10 @@ function read_command_config_from_editor(container, base_cfg) {
 
 // 对外接口: 解析输入内容
 // in: arg: input-search事件的 data.detail.config
+//     command_config: 指令配置, 单独传入而不写在 arg 上,
+//     避免污染思源自己的 config 对象(它可能被深拷贝/序列化)
 // out: {type:搜索类型, val:搜索内容, keywords:关键词, help:帮助信息}
-function search_translator(arg) {
+function search_translator(arg, command_config = null) {
     // 搜索结果排序方式
     const TYPE_SORT      = 0; //类型
     const CT_ASC         = 1; //创建时间升序
@@ -1939,7 +1941,7 @@ function search_translator(arg) {
     };
 
     // 指令配置与解析索引
-    const reg = build_command_registry(arg.command_config);
+    const reg = build_command_registry(command_config || arg.command_config);
     let   extra_types = [];     // 多字符/kv 指定的新类型码
     let   type_order  = [];     // 类型排序优先级, 按输入顺序
     let   effective_types = []; // 本次查询实际可能出现的块类型码(用于生成类型排序)
@@ -5933,8 +5935,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         }
         // 转换搜索内容, 传入 ignoredInputs 配置
         query_arg.ignoredInputs = this.g_setting.ignored_inputs;
-        query_arg.command_config = this.g_setting.command_config;
-        this.query = search_translator(query_arg);
+        // 指令配置单独传参, 不挂到思源的 config 对象上
+        this.query = search_translator(query_arg, this.g_setting.command_config);
         const res = this.query;
         // 根据转换后的内容, 设置相应的变量
         if (method_map[res.type] == undefined) return;
@@ -6517,12 +6519,11 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // 用它自己的原始输入关键词覆盖掉插件的高亮; 这里多次校验, 被覆盖后重新装回
         const token = this._preview_highlight_token = (this._preview_highlight_token || 0) + 1;
         let applied_ranges = null;
+        let applied_signature = null;
         const apply_preview_highlight = () => {
             // 预览已经被新的点击/搜索替换
             if (token !== this._preview_highlight_token) return;
             if (!search_preview.isConnected) return;
-            // 已经是插件装上的范围, 不要再重置, 避免打断逐个跳转
-            if (applied_ranges && hl?.ranges === applied_ranges) return;
             // 创建 createTreeWalker 迭代器，用于遍历文本节点，保存到一个数组
             const tree_walker = document.createTreeWalker(preview_root, NodeFilter.SHOW_TEXT);
             const search_preview_text_nodes = [];
@@ -6532,6 +6533,17 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     search_preview_text_nodes.push(current_node);
                 }
                 current_node = tree_walker.nextNode();
+            }
+            // 已经是插件装上的范围, 不要再重置, 避免打断逐个跳转
+            if (use_native_hl) {
+                if (applied_ranges && hl?.ranges === applied_ranges) return;
+            } else {
+                // 降级路径没有 hl.ranges 可比对; 用文本节点数与内容长度做签名,
+                // 代码块延时渲染等导致内容变化时重装, 内容没变则跳过, 避免 6 轮重复遍历
+                const signature = search_preview_text_nodes.length + ':'
+                    + search_preview_text_nodes.reduce((sum, node) => sum + node.textContent.length, 0);
+                if (applied_signature !== null && applied_signature === signature) return;
+                applied_signature = signature;
             }
             const ranges = collect_ranges(search_preview_text_nodes);
             if (use_native_hl) {

@@ -11,7 +11,6 @@
 - **模块系统**: CommonJS（`require("siyuan")`）
 - **最低版本**: 思源笔记 v3.8.7+
 - **依赖管理**: 无外部npm依赖，纯原生实现
-- **分支**: master | commit: 09d5d80
 
 ### 技术栈
 - 思源笔记插件API（`require("siyuan")`）
@@ -53,7 +52,8 @@ npx prettier --write index.js
 
 ### 文件组织
 - 所有业务代码必须放在 `index.js`，禁止拆分其他文件
-- CSS 样式放在 `index.css`，禁止内联样式
+- CSS 样式放在 `index.css`，禁止写静态内联样式
+- 由运行时数据计算出的动态样式（如坐标偏移、按数据算出的尺寸/颜色）允许通过 `element.style` 赋值
 - 配置文件放在 `plugin.json`，版本号必须与代码同步
 
 ### 命名规范
@@ -79,12 +79,11 @@ npx prettier --write index.js
 
 ### 注释规范
 - 除非必要，不添加注释
-- 关键逻辑可添加简短注释说明
-- 禁止大量注释，保持代码自解释
+- 关键逻辑可添加简短注释说明，尤其是思源 API 的坑、时序依赖、绕过的限制等不易从代码本身看出的约束
+- 禁止大量重复代码语义的注释，保持代码自解释
 
 ### HTML转义
 - 用户输入或动态内容必须使用 `escapeHtml` 函数转义
-- 参考: `index.js:107-114`
 
 ---
 
@@ -107,25 +106,22 @@ console.log('search triggered');
 ## 异常/错误处理
 
 - **异步操作**必须 `try-catch`，配置加载失败需降级默认值
-  - 参考: `index.js:2511-2527`
 - **DOM操作**前必须检查元素存在性
-  - 使用 `whenExist` 监听元素，参考: `index.js:32-74`
+  - 元素可能尚未渲染时，使用 `whenExist` 轮询等待
 - **事件处理**必须判断事件类型，阻止不必要传播
-  - 使用 `event.stopPropagation()`，参考: `index.js:2048-2051`
+  - 使用 `event.stopPropagation()`
 - **条件判断**优先使用严格相等 `===`
+  - 例外: 同时判断 `null` 和 `undefined` 时使用 `== null` / `!= null`，这是有意为之，不要改成 `=== null`
 
 ---
 
 ## 思源插件API规范
 
 - **必须**继承 `siyuan.Plugin`，实现 `onLayoutReady` 和 `onunload`
-  - 参考: `index.js:996,2533-2572`
-- **事件监听**必须使用 `eventBus.on/off`，禁止直接 `addEventListener`
-  - 参考: `index.js:2504-2509`
+- **监听思源事件**（如 `input-search`、`loaded-protyle-static`）必须使用 `eventBus.on/off`，且 on/off 必须传入同一个函数引用，否则无法注销
+- **监听 DOM 原生事件**（点击、键盘、滚动等）使用 `addEventListener`，`eventBus` 只承载思源自身事件，两者分工不同
 - **配置读写**必须使用 `loadData/saveData`，禁止直接操作文件
-  - 参考: `index.js:2511-2531`
 - **插件初始化**必须检查 `window.siyuan.isPublish`，发布模式禁用
-  - 参考: `index.js:2534,2568`
 
 ---
 
@@ -133,16 +129,15 @@ console.log('search triggered');
 
 - 用户配置保存在 `settings.json`，使用 `loadData/saveData` 读写
 - 配置项必须定义在 `g_setting` 对象，提供默认值
-  - 参考: `index.js:2543-2555`
 - 配置修改后必须**立即保存**，禁止延迟保存
-  - 参考: `index.js:1328-1329`
 
 ---
 
 ## CSS规范
 
-- **必须**使用思源原生CSS变量，如 `var(--b3-theme-primary)`
-- 禁止使用硬编码颜色值
+- **必须**使用思源原生CSS变量表达主题相关的前景色、背景色、边框色，如 `var(--b3-theme-primary)`、`var(--b3-theme-on-error)`
+- 禁止为主题相关颜色硬编码具体色值（如前景色写 `#fff`），否则深色主题下会失效
+- 例外: 阴影类 `box-shadow` 使用黑色半透明 `rgba(0, 0, 0, ...)` 属于常规做法（思源自身也这样写），不受此限
 - 样式选择器应简洁，避免过度嵌套
 
 ```css

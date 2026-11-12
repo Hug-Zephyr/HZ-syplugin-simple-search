@@ -699,7 +699,7 @@ body.ss-cmd-dragging {
     cursor: pointer;
 }
 .ss-cmd-del-form:hover {
-    color: #fff;
+    color: var(--b3-theme-on-error);
     background: var(--b3-theme-error);
     opacity: 1;
 }
