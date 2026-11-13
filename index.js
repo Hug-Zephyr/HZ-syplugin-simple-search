@@ -591,14 +591,17 @@ function get_all_command_candidates(cfg, input, caret, sort_ctx = null) {
         const token = '-' + e.ch;
         if (seen.has(token)) continue;
         seen.add(token);
+        // 可组合的单字符指令(如 -d)保留链式语义: 选中后不关列表、不补空格,
+        // 与在输入框里输入 "-" 后选中同样的指令行为一致
         candidates.push({
             kind: 'multi',
             insert: token,
             label: token,
             name: e.item.name || e.ch,
             hint: e.cat.name || '',
-            close: true,
-            trailing_space: true,
+            close: !e.combinable,
+            trailing_space: !e.combinable,
+            combinable: !!e.combinable,
             sort_key: e.sort_key,
         });
     }
@@ -5063,7 +5066,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         if (!state || !input) return;
         if (this.is_show_command_list()) {
             state.command = 'hide';
-            this.hide_command_completion();
+            this.hide_command_completion(true);
             return;
         }
         state.command = 'show';
@@ -5375,12 +5378,16 @@ class SimpleSearchHZ extends siyuan.Plugin {
         const history_ul = this.get_search_history_ul();
         const box = this.get_suggestion_box();
         if (!input || !history_ul || !box) return;
+        // 仅在列表从隐藏转为显示时记录初始输入; 链式刷新时保持首次值,
+        // 否则关闭时会把选中指令的插入误判为"未变化"而不触发搜索
+        const was_visible = this.is_show_command_list();
         clearTimeout(this.history_timer_id);
         this.hidden_search_history_list();
         this.suggestion_mode = 'command';
         this.command_completion = result;
         this.history_previewing = false;
         this.history_typed_value = input.value;
+        if (!was_visible) this.command_open_value = input.value;
         const usage = this.completion_usage || {};
         result.candidates.forEach((c, i) => {
             const name = c.name ? `<span class="HZ-search-command-name">${escapeHtml(c.name)}</span>` : '';
@@ -5453,7 +5460,12 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 while (caret < new_value.length && /\s/.test(new_value[caret])) caret++;
             }
             this.set_command_value(input, new_value, caret);
-            this.hide_command_completion();
+            // 可组合指令(如 -d)选中后保持列表, 继续链式组合
+            if (cand.combinable) {
+                this.refresh_command_completion();
+            } else {
+                this.hide_command_completion(true);
+            }
             return;
         }
 
@@ -5467,7 +5479,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 let caret = start + text.length;
                 while (caret < new_value.length && /\s/.test(new_value[caret])) caret++;
                 this.set_command_value(input, new_value, caret);
-                this.hide_command_completion();
+                this.hide_command_completion(true);
                 return;
             }
             const text = cand.insert + ',';
@@ -5480,7 +5492,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // 时间表达式: 逐步引导; 选字段/比较符/连接符后保持菜单, 日期提示项只关闭菜单
         if (result.time) {
             if (cand.kind === 'hint') {
-                this.hide_command_completion();
+                this.hide_command_completion(true);
                 return;
             }
             if (cand.kind === 'value') {
@@ -5495,7 +5507,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             const new_value = value.slice(0, end) + cand.insert + value.slice(end);
             this.set_command_value(input, new_value, end + cand.insert.length);
             if (cand.close) {
-                this.hide_command_completion();
+                this.hide_command_completion(true);
             } else {
                 this.refresh_command_completion();
             }
@@ -5507,7 +5519,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             let caret = end + insert.length;
             while (caret < new_value.length && /\s/.test(new_value[caret])) caret++;
             this.set_command_value(input, new_value, caret);
-            this.hide_command_completion();
+            this.hide_command_completion(true);
             return;
         }
 
@@ -5526,7 +5538,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
             this.refresh_command_completion();
             return;
         }
-        this.hide_command_completion();
+        this.hide_command_completion(true);
     }
 
     set_command_value(input, value, caret) {
@@ -5552,13 +5564,22 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.show_command_completion(result);
     }
 
-    hide_command_completion() {
+    // dispatch_search: 由选中指令导致列表关闭时为 true, 拦截模式下补一次搜索
+    hide_command_completion(dispatch_search = false) {
         // 手动打开(Tab)后关闭列表: 结束本次手动会话, 当前搜索页继续输入不再自动弹出
         const state = this.get_page_suggestion_state();
         if (state && state.command === 'show') state.command = 'hide';
         clearTimeout(this.history_timer_id);
         this.hidden_search_history_list();
         this.command_index = 0;
+        // 指令补全列表显示期间暂停搜索; 关闭时仅当输入因选中指令而变化才补一次搜索,
+        // 避免 Tab 仅开关列表(内容未变)时重复触发搜索
+        const input = this.get_search_input();
+        const changed = input && input.value !== this.command_open_value;
+        this.command_open_value = null;
+        if (dispatch_search && changed) {
+            this.search_history_dispatch_input();
+        }
     }
 
     // 按输入内容计算历史候选并延迟显示(连续输入时只保留最后一次)
@@ -5591,7 +5612,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // 中文触发顺序: start -> input -> input -> end
         // 英文触发顺序: input
         inputElement?.addEventListener('compositionend', (event) => {
-            // 指令补全独立于历史模式, 命中时暂停搜索
+            // 指令补全独立于历史模式, 命中时暂停搜索, 关闭列表后再按输入补搜
             if (this.update_command_completion(inputElement.value, inputElement.selectionStart, inputElement)) {
                 event.stopPropagation();
                 return;
@@ -5639,7 +5660,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     }
                 }
             }
-            // 指令补全优先于历史记录, 显示期间始终暂停搜索
+            // 指令补全优先于历史记录, 命中时暂停搜索, 关闭列表后再按输入补搜
             if (!event.isComposing &&
                 this.update_command_completion(event.target.value, inputElement.selectionStart, inputElement)) {
                 event.stopPropagation();
@@ -5699,14 +5720,14 @@ class SimpleSearchHZ extends siyuan.Plugin {
             if (this.is_show_command_list()) {
                 // 其他 Alt 组合键不处理, 保持补全打开
                 if (event.altKey) return;
-                // 快捷键关闭时, Tab 会离开输入框, 顺手关闭补全
+                // 关闭补全列表; 拦截模式下补一次搜索, 让结果对应输入框内容
                 if (type === 'tab') {
-                    this.hide_command_completion();
+                    this.hide_command_completion(true);
                     return;
                 }
                 if (event.ctrlKey || event.shiftKey || event.metaKey) {
                     if (event.shiftKey && (type === 'arrowup' || type === 'arrowdown')) {
-                        this.hide_command_completion();
+                        this.hide_command_completion(true);
                     }
                     return;
                 }
@@ -5725,7 +5746,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 case 'escape':
                     event.preventDefault();
                     event.stopPropagation();
-                    this.hide_command_completion();
+                    // 取消列表: 拦截模式下补一次搜索, 让结果对应已输入的指令
+                    this.hide_command_completion(true);
                     break;
                 }
                 return;
@@ -5808,7 +5830,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     return;
                 }
                 if (this.is_show_command_list()) {
-                    this.hide_command_completion();
+                    // 点外部关闭列表: 拦截模式下按当前输入补一次搜索
+                    this.hide_command_completion(true);
                     return;
                 }
                 this.cancel_search_history();

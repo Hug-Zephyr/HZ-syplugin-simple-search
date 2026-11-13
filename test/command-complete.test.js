@@ -231,10 +231,16 @@ test('指令补全: Tab 无候选时列出全部指令', () => {
     assert.ok(l.includes('--callout'));
     assert.ok(l.includes('--type=callout'));
     assert.ok(l.includes('--sort='));
-    // 单字符插入时自带 "-" 前缀和空格, 适合直接接着输入关键词
+    // 不可组合的单字符(如 -w 关键词): 插入后关闭列表并补空格, 适合直接接着输入关键词
+    const w = r.candidates.find(c => c.label === '-w');
+    assert.equal(w.insert, '-w');
+    assert.equal(w.trailing_space, true);
+    assert.equal(w.close, true);
+    // 可组合的单字符(如 -d 文档块): 与输入 "-" 后选中一致, 不关列表、不补空格, 可继续链式组合
     const d = r.candidates.find(c => c.label === '-d');
     assert.equal(d.insert, '-d');
-    assert.equal(d.trailing_space, true);
+    assert.equal(d.trailing_space, false);
+    assert.equal(d.close, false);
 
     const cfg = get_default_command_config();
     cfg.categories.find(c => c.id === 'type').items.find(i => i.id === 'd').enabled = false;

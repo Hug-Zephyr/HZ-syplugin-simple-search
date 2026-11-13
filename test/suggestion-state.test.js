@@ -135,6 +135,7 @@ test('补全: 手动打开后关闭列表, 当前页不再自动弹出', () => {
         command_index: 2,
         hidden_search_history_list() {},
         get_page_suggestion_state: () => manual_state,
+        get_search_input: () => null,
     };
     hide.call(ctx);
     assert.equal(manual_state.command, 'hide');
