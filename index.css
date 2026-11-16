@@ -241,10 +241,12 @@
 .ss-setting-row--disabled .b3-switch {
     cursor: not-allowed;
 }
-/* 已修改但尚未保存的设置项 */
+/* 与默认值不同的设置项: 主题主色竖线 */
+.ss-setting-row--nondefault,
 .ss-setting-row--modified {
     position: relative;
 }
+.ss-setting-row--nondefault::before,
 .ss-setting-row--modified::before {
     content: "";
     position: absolute;
@@ -253,12 +255,45 @@
     bottom: 6px;
     width: 3px;
     border-radius: 2px;
-    background-color: var(--b3-theme-primary);
     pointer-events: none;
 }
+.ss-setting-row--nondefault::before {
+    background-color: var(--b3-theme-primary);
+}
+/* 本次打开设置面板后修改、尚未保存的设置项: 橙色竖线, 优先于“与默认不同” */
+.ss-setting-row--modified::before {
+    background-color: var(--b3-theme-secondary);
+}
+/* 设置面板底部的标记说明 */
+.ss-setting-legend {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    opacity: 0.75;
+    white-space: nowrap;
+}
+.ss-setting-legend-item::before {
+    content: "";
+    display: inline-block;
+    width: 3px;
+    height: 12px;
+    margin-right: 5px;
+    border-radius: 2px;
+    vertical-align: -2px;
+}
+.ss-setting-legend-item--nondefault::before {
+    background-color: var(--b3-theme-primary);
+}
+.ss-setting-legend-item--modified::before {
+    background-color: var(--b3-theme-secondary);
+}
+
 /* 指令配置/自定义顺序的行更紧凑, 竖线上下少留一点, 避免显得太短 */
 .ss-cmd-item.ss-setting-row--modified::before,
-.ss-completion-order-row.ss-setting-row--modified::before {
+.ss-cmd-item.ss-setting-row--nondefault::before,
+.ss-completion-order-row.ss-setting-row--modified::before,
+.ss-completion-order-row.ss-setting-row--nondefault::before {
     top: 2px;
     bottom: 2px;
 }

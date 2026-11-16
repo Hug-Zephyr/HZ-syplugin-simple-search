@@ -3151,7 +3151,7 @@ function get_default_plugin_settings() {
         show_recognized   : true,           // 搜索页顶部是否显示“简搜已识别”摘要
         btn_show_help     : true,           // 搜索页顶部是否显示指令手册按钮
         btn_show_setting  : true,           // 搜索页顶部是否显示简搜设置按钮
-        history_auto      : 'smart',        // 自动显示历史记录: close-关闭, smart-智能显示, always-总是显示
+        history_auto      : 'close',        // 自动显示历史记录: close-关闭, smart-智能显示, always-总是显示
         history_auto_prefix_only: false,    // 自动显示历史时是否只保留前缀匹配(过滤包含/模糊匹配)
         intercept_search  : true,           // 历史列表显示期间是否拦截(暂停)原生搜索
         replace_history   : true,           // 历史列表快捷键(Alt+↓)是否启用
@@ -3169,7 +3169,7 @@ function get_default_plugin_settings() {
         is_blink_open     : false,          // 通过 双击/回车 跳转到对应位置后, 闪烁当前的块
         cursor_position   : "after",        // 通过 双击/回车 跳转到对应位置后, 光标效果: 不处理:none, 之前:before, 选中:select, 之后:after
         ignored_inputs    : ["/", "//", "-", "--"], // 需要阻止搜索的特殊输入
-        command_complete  : true,           // 输入 -/-- 时是否显示指令补全(默认开启)
+        command_complete  : false,          // 输入 -/-- 时是否显示指令补全(默认关闭)
         command_rows      : 15,             // 指令补全菜单最多显示的行数, 0=只按窗口高度限制
         history_rows_intercept: 15,         // 拦截搜索开启时历史列表最多显示的行数, 0=不限制
         history_rows_normal   : 4,          // 拦截搜索关闭时历史列表最多显示的行数, 0=不限制
@@ -3731,7 +3731,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     ${row_switch('show_recognized', '显示“简搜已识别”摘要', '在搜索页顶部工具栏显示被插件识别并消费的指令 token, 悬浮可查看含义; 关闭后不显示; 辅助区域隐藏时也不显示')}
                 </div>
                 <div class="simpleSearchSettingPane" data-pane="history">
-                    ${row_select('history_auto', '自动显示历史记录', '推荐: 选“关闭”并开启「历史列表快捷键 (Alt+↓)」, 需要时手动调出, 避免输入时频繁弹出<br>输入内容时自动显示匹配到的历史记录<br>关闭: 不自动显示, 需要时用 alt+↓ 手动调出<br>智能显示: 存在可用的历史候选时显示(与输入完全相同的项不计入)<br>总是显示: 只要输入不为空就显示, 首行为当前输入', [
+                    ${row_select('history_auto', '自动显示历史记录', '默认关闭: 需要时用「历史列表快捷键 (Alt+↓)」手动调出, 避免输入时频繁弹出<br>输入内容时自动显示匹配到的历史记录<br>关闭: 不自动显示, 需要时用 alt+↓ 手动调出<br>智能显示: 存在可用的历史候选时显示(与输入完全相同的项不计入)<br>总是显示: 只要输入不为空就显示, 首行为当前输入', [
                         {value: 'close',  label: '关闭'},
                         {value: 'smart',  label: '智能显示'},
                         {value: 'always', label: '总是显示'},
@@ -3748,7 +3748,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
                     ])}
                 </div>
                 <div class="simpleSearchSettingPane" data-pane="completion">
-                    ${row_switch('command_complete', '自动显示指令补全', '推荐: 关闭本项, 配合「指令补全快捷键 (Tab)」按需手动打开, 避免输入时频繁弹窗<br>开启后: 输入 - 时列出单字符指令, 输入 -- 时列出多字符指令和 kv key, 输入 kv key 后列出配置中的可选值<br>关闭后: 输入时不再自动弹出, 仍可用 Tab 快捷键手动打开(需开启「指令补全快捷键 (Tab)」)<br>选择指令期间会暂停搜索; -w/-q/-s/-r 模式指令之后不补全')}
+                    ${row_switch('command_complete', '自动显示指令补全', '默认关闭: 配合「指令补全快捷键 (Tab)」按需手动打开, 避免输入时频繁弹窗<br>开启后: 输入 - 时列出单字符指令, 输入 -- 时列出多字符指令和 kv key, 输入 kv key 后列出配置中的可选值<br>关闭后: 输入时不再自动弹出, 仍可用 Tab 快捷键手动打开(需开启「指令补全快捷键 (Tab)」)<br>选择指令期间会暂停搜索; -w/-q/-s/-r 模式指令之后不补全')}
                     ${row_switch('command_shortcut', '指令补全快捷键 (Tab)', '开启后: Tab 显示/隐藏指令补全列表(与“自动显示指令补全”开关无关, 自动弹出关闭时仍可手动调出), 没有补全候选时列出全部指令(回车插入); 手动状态只在当前搜索页有效, 不会修改任何设置<br>关闭后: 不使用该快捷键')}
                     ${row_number('command_rows', '补全菜单行数上限', '指令补全列表最多显示的行数; 0 表示只按窗口高度限制<br>自动显示和 Tab 快捷键都关闭时不可用')}
                     ${row_select('completion_sort', '补全排序方式', '控制单字符、多字符、kv key 和 kv 值的补全顺序<br>设置顺序: 按指令配置的顺序<br>使用次数: 按搜索页会话统计的次数排序(页面关闭时结算), 次数相同按设置顺序<br>自定义: 按下方分组列表的顺序<br>自动显示和 Tab 快捷键都关闭时不可用', [
@@ -3839,6 +3839,11 @@ class SimpleSearchHZ extends siyuan.Plugin {
         </div>
         <div class="b3-dialog__action">
             <button class="b3-button b3-button--outline" id="simpleSearchResetAll">重置所有</button>
+            <div class="fn__space"></div>
+            <div class="ss-setting-legend" aria-label="设置标记说明">
+                <span class="ss-setting-legend-item ss-setting-legend-item--nondefault">与默认不同</span>
+                <span class="ss-setting-legend-item ss-setting-legend-item--modified">本次修改未保存</span>
+            </div>
             <div class="fn__flex-1"></div>
             <button class="b3-button b3-button--cancel">取消</button>
             <div class="fn__space"></div>
@@ -4372,6 +4377,28 @@ class SimpleSearchHZ extends siyuan.Plugin {
         const get_control_value = (ele) => ele.type === 'checkbox' ? !!ele.checked : ele.value;
         const get_setting_controls = () => [...dialog.element.querySelectorAll('[data-key]')]
             .filter(ele => !hidden_setting_keys.has(ele.dataset.key));
+        const default_settings = get_default_plugin_settings();
+        const normalize_ignored_inputs = (value) => {
+            const arr = Array.isArray(value) ? value : String(value ?? '').split(',');
+            return JSON.stringify([...new Set(arr.map(s => String(s).trim()).filter(Boolean))].sort());
+        };
+        const is_control_non_default = (ele) => {
+            const key = ele.dataset.key;
+            const current = get_control_value(ele);
+            const def = default_settings[key];
+            if (key === 'ignored_inputs') {
+                return normalize_ignored_inputs(current) !== normalize_ignored_inputs(def);
+            }
+            if (ele.type === 'checkbox') return !!current !== !!def;
+            if (ele.type === 'number') return Number(current) !== Number(def);
+            return String(current ?? '') !== String(def ?? '');
+        };
+        // 两种标记互斥: 本次修改优先显示橙色, 其余与默认不同的显示蓝线
+        const apply_setting_row_marks = (row, session_changed, non_default) => {
+            if (!row) return;
+            row.classList.toggle('ss-setting-row--modified', !!session_changed);
+            row.classList.toggle('ss-setting-row--nondefault', !!non_default && !session_changed);
+        };
         const initial_control_values = new Map(
             get_setting_controls().map(ele => [ele.dataset.key, get_control_value(ele)])
         );
@@ -4449,67 +4476,108 @@ class SimpleSearchHZ extends siyuan.Plugin {
             if (get_completion_order_snapshot() !== initial_completion_order) return true;
             return false;
         };
+        const get_command_item_sig = (item) => {
+            const comms = (item.comms || [])
+                .filter(c => is_command_form_allowed(item, c.form))
+                .map(c => c.form === 'kv'
+                    ? { form: 'kv', key: c.key || '', value: c.value || '' }
+                    : { form: c.form, content: c.content || '' });
+            return JSON.stringify({ enabled: item.enabled !== false, comms });
+        };
         const update_command_modified_marks = () => {
             const current = get_command_config_obj();
             const head = dialog.element.querySelector('.ss-cmd-head');
             const cat_nodes = [...dialog.element.querySelectorAll('.ss-cmd-cat')];
             // 配置无法读取时退回到区块标题上的标记
             if (!current || !initial_command_config_obj) {
-                head?.classList.toggle(
-                    'ss-setting-row--modified',
-                    get_command_config_snapshot() !== initial_command_config
+                apply_setting_row_marks(
+                    head,
+                    get_command_config_snapshot() !== initial_command_config,
+                    false
                 );
                 dialog.element.querySelectorAll('.ss-cmd-item, .ss-cmd-cat').forEach(ele => {
-                    ele.classList.remove('ss-setting-row--modified');
+                    ele.classList.remove('ss-setting-row--modified', 'ss-setting-row--nondefault');
                 });
                 return;
             }
-            head?.classList.remove('ss-setting-row--modified');
             const initial_cats = new Map((initial_command_config_obj.categories || []).map(c => [c.id, c]));
             const current_cats = new Map((current.categories || []).map(c => [c.id, c]));
+            const default_cats = new Map((default_settings.command_config.categories || []).map(c => [c.id, c]));
+            let has_non_default = false;
             cat_nodes.forEach(cat_node => {
-                cat_node.classList.remove('ss-setting-row--modified');
+                cat_node.classList.remove('ss-setting-row--modified', 'ss-setting-row--nondefault');
                 const cat_id = cat_node.dataset.cat;
                 const initial_cat = initial_cats.get(cat_id);
                 const current_cat = current_cats.get(cat_id);
                 if (!initial_cat || !current_cat) return;
                 const initial_items = new Map((initial_cat.items || []).map(item => [item.id, JSON.stringify(item)]));
                 const current_items = new Map((current_cat.items || []).map(item => [item.id, JSON.stringify(item)]));
+                const current_item_objs = new Map((current_cat.items || []).map(item => [item.id, item]));
+                const default_cat = default_cats.get(cat_id);
+                const default_items = new Map((default_cat?.items || []).map(item => [item.id, item]));
                 const initial_order = (initial_cat.items || []).map(item => item.id);
                 const current_order = (current_cat.items || []).map(item => item.id);
+                const default_order = (default_cat?.items || []).map(item => item.id);
                 const moved_items = get_order_changed_keys(initial_order, current_order);
+                const moved_from_default = get_order_changed_keys(default_order, current_order);
                 // 内容和排序的变化都具体标到对应的指令项上
                 cat_node.querySelectorAll('.ss-cmd-item').forEach(item_node => {
                     const item_id = item_node.dataset.itemId;
-                    const changed = moved_items.has(item_id) ||
+                    const session_changed = moved_items.has(item_id) ||
                         !initial_items.has(item_id) ||
                         initial_items.get(item_id) !== current_items.get(item_id);
-                    item_node.classList.toggle('ss-setting-row--modified', changed);
+                    const current_item = current_item_objs.get(item_id);
+                    const default_item = default_items.get(item_id);
+                    const non_default = !default_item || !current_item ||
+                        moved_from_default.has(item_id) ||
+                        get_command_item_sig(current_item) !== get_command_item_sig(default_item);
+                    has_non_default = has_non_default || non_default;
+                    apply_setting_row_marks(item_node, session_changed, non_default);
                 });
             });
+            apply_setting_row_marks(head, false, has_non_default);
         };
         const update_completion_modified_marks = () => {
             if (!completion_order_ele) return;
             const rows = [...completion_order_ele.querySelectorAll('.ss-completion-order-row')];
             const current_keys = rows.map(row => row.dataset.orderKey);
-            const moved_keys = get_order_changed_keys(initial_completion_keys, current_keys);
+            const mode = completion_sort_ele?.value || this.g_setting.completion_sort || 'config';
+            // 非自定义排序下列表只是预览, 顺序变化不算用户修改; 只有自定义模式下的拖动才标记
+            const moved_keys = mode === 'custom'
+                ? get_order_changed_keys(initial_completion_keys, current_keys)
+                : new Set();
+            // 默认顺序: 自定义顺序为空时按分组原顺序展示
+            const entries = get_completion_entries(this.g_setting.command_config);
+            const default_keys = get_completion_custom_groups(entries, [])
+                .flatMap(group => group.entries.map(e => e.key));
+            const moved_from_default = mode === 'custom'
+                ? get_order_changed_keys(default_keys, current_keys)
+                : new Set();
+            const default_hidden = new Set(default_settings.completion_hidden || []);
             rows.forEach(row => {
                 const key = row.dataset.orderKey;
                 const sw = row.querySelector('.ss-completion-order-switch');
                 const hidden = !!(sw && !sw.checked);
-                const changed = moved_keys.has(key) ||
+                const session_changed = moved_keys.has(key) ||
                     initial_completion_hidden.has(key) !== hidden;
-                row.classList.toggle('ss-setting-row--modified', changed);
+                const non_default = default_hidden.has(key) !== hidden ||
+                    moved_from_default.has(key);
+                apply_setting_row_marks(row, session_changed, non_default);
             });
-            dialog.element.querySelector('.ss-completion-order-head')
-                ?.classList.remove('ss-setting-row--modified');
+            // 非自定义排序下列表只是预览, 已保存的自定义顺序没有对应的行可标, 标在分组标题上
+            const head = dialog.element.querySelector('.ss-completion-order-head');
+            const saved_order = this.g_setting.completion_order || [];
+            const saved_order_non_default = saved_order.length > 0 &&
+                get_order_changed_keys(default_keys, saved_order).size > 0;
+            apply_setting_row_marks(head, false, mode !== 'custom' && saved_order_non_default);
         };
         const update_dirty_marks = () => {
             get_setting_controls().forEach(ele => {
                 const row = ele.closest('[data-setting-row], .config-item');
-                row?.classList.toggle(
-                    'ss-setting-row--modified',
-                    get_control_value(ele) !== initial_control_values.get(ele.dataset.key)
+                apply_setting_row_marks(
+                    row,
+                    get_control_value(ele) !== initial_control_values.get(ele.dataset.key),
+                    is_control_non_default(ele)
                 );
             });
             update_command_modified_marks();
