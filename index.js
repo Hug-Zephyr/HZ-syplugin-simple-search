@@ -84,21 +84,6 @@ function whenExist(selector, func_cb, time_out = 4000, is_cancelled = null) {
     });
 }
 
-// js插入css
-function js_insert_css(css) {
-    // 创建一个新的 <style> 元素
-    const style = document.createElement('style');
-    style.type = 'text/css';
-
-    // 添加 CSS 规则
-    style.innerHTML = css;
-
-    // 将 <style> 元素插入到 <body> 中
-    document.body.appendChild(style);
-    return style;
-    // 删除
-    // style.remove();
-}
 // 获取光标所在的元素
 function getElementAtCursor() {
     const selection = window.getSelection();
@@ -276,6 +261,13 @@ const SYT = {
 // 配置版本使用插件版本号(与 plugin.json 的 version 一致, 测试会校验):
 // 发版后版本号变化即触发一次默认配置合并, 不需要单独维护自增版本
 const PLUGIN_VERSION = '1.3.7';
+// 搜索页根节点上的样式 class, 规则在 index.css 里, 这里只负责开关
+const STYLE_TREE_CLASS_MAP = {
+    native_tree: 'HZ-sp-tree-native',
+    colorful:    'HZ-sp-tree-colorful',
+    ediary:      'HZ-sp-tree-ediary',
+};
+const STYLE_CLASSES = [...Object.values(STYLE_TREE_CLASS_MAP), 'HZ-sp-list-no-icon', 'HZ-sp-list-classic'];
 function get_default_command_config() {
     const type_item = (id, name, code, comms) => ({ id, name, kind: 'type', code, comms });
     const new_type = (code, name) => ({
@@ -3240,8 +3232,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 controller.abort();
                 this._page_aborts.delete(page);
             }
-            // 页面只是短暂脱离时, 重新挂回后可以再次初始化
-            page.classList?.remove('HZ-simple-search-page');
+            // 页面只是短暂脱离时, 重新挂回后可以再次初始化(样式 class 一并清掉, 重新初始化时再带上)
+            page.classList?.remove('HZ-simple-search-page', ...STYLE_CLASSES);
             return;
         }
         for (const controller of this._page_aborts.values()) controller.abort();
@@ -3443,237 +3435,25 @@ class SimpleSearchHZ extends siyuan.Plugin {
     get_new_search_list() {
         return this.get_ele('#HZsimpleSearchList');
     }
-    uninit_css_style() {
-        if (!this.css) return
-        this.css.remove();
-        this.css = null;
+    // 当前设置需要哪些样式 class, 规则本身在 index.css 里
+    get_style_classes() {
+        const classes = [];
+        // 平铺(native_list)不需要额外的树样式, 只有三种树样式有对应 class
+        const tree_cls = STYLE_TREE_CLASS_MAP[this.g_setting.restree_style];
+        if (tree_cls) classes.push(tree_cls);
+        if (this.g_setting.list_include_icon === false) classes.push('HZ-sp-list-no-icon');
+        if ((this.g_setting.list_selected_style || 'bar') === 'classic') classes.push('HZ-sp-list-classic');
+        return classes;
     }
-    init_css_style() {
-        this.uninit_css_style();
-        let css = "";
-        // 竖线风格
-        const tree_style = this.g_setting.restree_style;
-        if (tree_style == 'native_tree') {
-            css = `
-                /* 新增的文档树 */
-                :root {
-                    /* 竖线与父级竖线的距离 */
-                    --HZ-sp-vertical-line-interval: 18px;
-                    /* 结果与左边竖线的距离 */
-                    --HZ-sp-search-res-pad-left: 22px;
-                }
-                #HZsimpleSearchList .simpleSearchListBody {
-                    margin-left: var(--HZ-sp-vertical-line-interval);
-                    &>.b3-list-item>.b3-list-item__graphic  {
-                        margin-right: 0px;
-                    }
-                    &>div>[data-type="search-item"] {
-                        padding-left: var(--HZ-sp-search-res-pad-left)!important;
-                        &>.b3-list-item__graphic {
-                            margin-right: 2px;
-                        }
-                    }
-                }
-            `
-        }
-        else if (tree_style == 'colorful') {
-            css = `
-                /* 新增的文档树 */
-                :root {
-                    /* 竖线颜色 */
-                    --HZ-sp-vertical-line-color-1: var(--b3-font-color7);
-                    --HZ-sp-vertical-line-color-2: var(--b3-font-color6);
-                    --HZ-sp-vertical-line-color-3: var(--b3-font-color9);
-                    --HZ-sp-vertical-line-color-4: var(--b3-font-color11);
-                    --HZ-sp-vertical-line-color-5: var(--b3-font-color7);
-                    --HZ-sp-vertical-line-color-6: var(--b3-font-color6);
-                    --HZ-sp-vertical-line-color-7: var(--b3-font-color9);
-                    --HZ-sp-vertical-line-color-8: var(--b3-font-color11);
-                    /* 竖线括号粗细 */
-                    --HZ-sp-vertical-line-bracket-width: 2px;
-                    /* 竖线括号圆角弧度 */
-                    --HZ-sp-bracket-border-radius: 8px;
-                    /* 竖线与父级竖线的距离 */
-                    --HZ-sp-vertical-line-interval: 18px;
-                    /* 结果与左边竖线的距离 */
-                    --HZ-sp-search-res-pad-left: 2px;
-                }
-                #HZsimpleSearchList .simpleSearchListBody {
-                    margin-left: var(--HZ-sp-vertical-line-interval);
-                    border-top-left-radius: var(--HZ-sp-bracket-border-radius);
-                    border-bottom-left-radius: var(--HZ-sp-bracket-border-radius);
-                    &>div>[data-type="search-item"] {
-                        padding-left: var(--HZ-sp-search-res-pad-left)!important;
-                    }
-                    .b3-list-item__toggle--hl {
-                        margin-left: -2px;
-                        margin-right: 2px;
-                    }
-                    border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-1);
-                    .simpleSearchListBody {
-                        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-2);
-                    }
-                    .simpleSearchListBody .simpleSearchListBody {
-                        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-3);
-                    }
-                    .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody {
-                        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-4);
-                    }
-                    .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody {
-                        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-5);
-                    }
-                    .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody {
-                        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-6);
-                    }
-                    .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody {
-                        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-7);
-                    }
-                    .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody {
-                        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-8);
-                    }
-                }
-            `;
-        }
-        else if (tree_style == 'ediary') {
-            css = `
-                :root {
-                    /* 竖线与父级竖线的距离 */
-                    --HZ-sp-vertical-line-interval: 22px;
-                    /* 结果与左边竖线的距离 */
-                    --HZ-sp-search-res-pad-left: 26px;
-                    /* 竖线颜色 */
-                    --HZ-sp-vertical-line-color: var(--b3-theme-on-surface-light);
-                }
-
-                #HZsimpleSearchList .simpleSearchListBody {
-                    margin-left: var(--HZ-sp-vertical-line-interval);
-
-                    &>.b3-list-item {
-                        margin-left: 6px;
-                    }
-
-                    &>.b3-list-item>.b3-list-item__graphic {
-                        margin-right: 0px;
-                    }
-
-                    &>div>[data-type="search-item"] {
-                        padding-left: var(--HZ-sp-search-res-pad-left) !important;
-
-                        &>.b3-list-item__graphic {
-                            margin-right: 2px;
-                        }
-                    }
-                }
-
-                #HZsimpleSearchList>.b3-list-item {
-                    margin-left: 7px;
-                }
-
-                /*折叠按钮样式*/
-                #HZsimpleSearchList .b3-list-item>.b3-list-item__toggle>svg {
-                    background-color: var(--b3-theme-surface);
-                    border: 1px solid var(--b3-theme-on-surface-light);
-                    padding: 0px;
-                    border-radius: 4px;
-                    margin-right: 4px;
-                }
-
-                /*文档的折叠按钮, 图标要比虚线高一层 */
-                #HZsimpleSearchList .b3-list-item__toggle>svg,
-                #HZsimpleSearchList .b3-list-item__graphic {
-                    z-index: 2;
-                }
-
-                /* L型的线 */
-                #HZsimpleSearchList .simpleSearchListBody {
-                    position: relative;
-                }
-
-                #HZsimpleSearchList .simpleSearchListBody::before {
-                    content: "";
-                    visibility: visible;
-                    position: absolute;
-                    left: 19px;
-                    top: -7px;
-                    width: 18px;
-                    height: calc(100% - 7px);
-                    background: transparent;
-                    border-left: 1px dashed var(--HZ-sp-vertical-line-color);
-                    border-bottom: 1px dashed var(--HZ-sp-vertical-line-color);
-                    z-index: 1;
-                }
-
-                /* L型的线并不能完全覆盖, 剩下的由每个文档覆盖*/
-                #HZsimpleSearchList .simpleSearchListBody .b3-list-item::before {
-                    content: "";
-                    visibility: visible;
-                    position: absolute;
-                    left: 13px;
-                    width: 15px;
-                    height: 1px;
-                    background: transparent;
-                    border-bottom: 1px dashed var(--HZ-sp-vertical-line-color);
-                    z-index: 1;
-                }
-            `;
-        }
-        // 列表相关的可选样式, 与搜索结果树样式互相独立, 无论 tree_style 命中与否都要注入
-        css += this._get_list_style_css();
-        // 布局: 弹窗过矮时结果列表溢出的高度不要撑大整个搜索页。
-        // .search__layout 是 flex:1 且 overflow:visible, 结果多时它的 scrollHeight 会超过自身高度,
-        // 让 .HZ-simple-search-page 也出现溢出; 思源渲染结果后会调 scrollIntoView() 滚动所有可滚动祖先,
-        // 于是顶部工具栏、搜索框、条件行被顶出可视区, 看起来像"前面固定的元素没了"。
-        // 这里裁掉溢出, 让滚动只发生在结果列表内部
-        css += `
-            .HZ-simple-search-page > .search__layout {
-                overflow: hidden !important;
-            }
-        `;
-        if (css) this.css = js_insert_css(css);
-    }
-    // 生成历史/补全列表的外观 CSS: 是否包含历史图标、选中样式
-    _get_list_style_css() {
-        const include_icon = this.g_setting.list_include_icon !== false;
-        // 选中样式: bar-蓝条(默认), classic-圆角浮起
-        const selected = this.g_setting.list_selected_style || 'bar';
-        // 条目文字左内边距: 包含图标时与搜索框文字(图标区36+输入区8)对齐;
-        // 不包含时面板已右移让开图标区, 无需对齐, 给 16px 让文字与蓝条/圆角边框留有呼吸感
-        const text_offset = include_icon ? 44 : 16;
-        let css = `
-            :root { --HZ-sp-list-text-offset: ${text_offset}px; }
-        `;
-        if (!include_icon) {
-            // 不包含图标: 面板整体右移图标区宽度, 图标/箭头留在面板外;
-            // 输入文字内边距与条目缩进一致(16px), 保证搜索框文字与列表条目文字对齐
-            css += `
-                #searchInput.HZ-search-suggestion-open {
-                    margin-left: 36px;
-                    width: calc(100% - 36px);
-                    padding-left: ${text_offset}px !important;
-                }
-            `;
-        }
-        if (selected === 'classic') {
-            // 经典: 恢复圆角浮起, 与边界留距, 无左蓝条;
-            // 左内边距要扣掉 8px 的左边距, 文字才能与搜索框文字对齐
-            const classic_offset = text_offset - 8;
-            css += `
-                #simpleSearchHistoryList li.b3-list-item {
-                    margin: 4px 8px;
-                    border-radius: var(--b3-border-radius);
-                    padding-left: ${classic_offset}px;
-                }
-                #simpleSearchHistoryList li.b3-list-item:hover {
-                    background-color: var(--b3-list-hover);
-                }
-                #simpleSearchHistoryList li.b3-list-item.b3-list-item--focus,
-                #simpleSearchHistoryList li.b3-list-item.b3-list-item--focus:hover {
-                    background-color: var(--b3-theme-primary-lightest);
-                    box-shadow: none;
-                }
-            `;
-        }
-        return css;
+    // 把样式 class 同步到搜索页根节点。传 page 时只处理该页, 否则处理所有已打开的搜索页。
+    // 新打开的搜索页在 handle_open_search_page 里带上, 设置变化时在这里就地刷新。
+    apply_style_classes(page = null) {
+        const targets = page ? [page] : document.querySelectorAll('.HZ-simple-search-page');
+        if (!targets.length) return;
+        const wanted = this.get_style_classes();
+        targets.forEach(ele => {
+            STYLE_CLASSES.forEach(cls => ele.classList.toggle(cls, wanted.includes(cls)));
+        });
     }
     // 打开插件的设置面板(左侧分类 + 右侧配置)
     openSetting() {
@@ -4791,7 +4571,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         });
         set_log_level(this.g_setting.log_level);
         this.save_plugin_setting();
-        this.init_css_style();
+        this.apply_style_classes();
         // 总开关立即生效: 关闭时不再接管事件, 并移除已插入的界面
         this.sy_event_uninit();
         if (this.g_setting.plugin_enabled === false) {
@@ -5996,6 +5776,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         if (this.page.classList.contains('HZ-simple-search-page')) return;
         mylog_info('第一次打开搜索页面');
         this.page.classList.add('HZ-simple-search-page');
+        // 树样式/列表样式由根节点上的 class 决定, 新页面要把当前设置带上
+        this.apply_style_classes(this.page);
 
         // 各步骤相互隔离: 某个界面插入失败时, 其余功能和搜索本身仍要正常
         const run_step = (name, fn) => {
@@ -7015,8 +6797,10 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // 移除接管后的结果树, 恢复原生结果列表
         document.querySelectorAll('#HZsimpleSearchList').forEach(ele => ele.remove());
         document.querySelectorAll('#searchList.fn__none').forEach(ele => ele.classList.remove('fn__none'));
-        // 去掉页面初始化标记, 重新启用后可以再次初始化
-        document.querySelectorAll('.HZ-simple-search-page').forEach(ele => ele.classList.remove('HZ-simple-search-page'));
+        // 去掉页面初始化标记和样式 class, 重新启用后可以再次初始化
+        document.querySelectorAll('.HZ-simple-search-page').forEach(ele => {
+            ele.classList.remove('HZ-simple-search-page', ...STYLE_CLASSES);
+        });
         this.unbind_document_listeners();
         this.abort_page_listeners();
         this.reset_page_state();
@@ -7096,7 +6880,6 @@ class SimpleSearchHZ extends siyuan.Plugin {
     // 布局初始化完成后, 触发
     onLayoutReady() {
         if (window.siyuan.isPublish) return;
-        this.css            = null;
         this.page           = null;  // 搜索框所在的页面, 所有搜索都在此元素下搜索, 用于隔离 搜索页签和搜索弹窗
         this._search_config = null;  // 最近一次 input-search 的配置对象, 用于临时切换 SQL 按键行为
         this.is_searching   = false; // 是否正在搜索
@@ -7130,7 +6913,6 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.load_completion_usage();
         this.load_plugin_setting(() => {
             this.save_plugin_setting();
-            this.init_css_style();
             this.sy_event_init();
             // 重新加载后, 上次搜索历史会丢, 这里重新赋值一下
             // SYT.set_last_search_k();
@@ -7148,7 +6930,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // 同步来源可能覆盖了配置, 重新载入; 其他实例的写入不影响本实例的运行时状态
         if (reason !== 'sync') return;
         this.load_plugin_setting(() => {
-            this.init_css_style();
+            this.apply_style_classes();
             this.update_assist_btn_visibility();
             this.apply_assist_sw_ui();
             this.update_recognized_summary();
@@ -7157,7 +6939,6 @@ class SimpleSearchHZ extends siyuan.Plugin {
 
     onunload() {
         if (window.siyuan.isPublish) return;
-        this.uninit_css_style();
         this.sy_event_uninit()
         // 卸载时移除插入的界面、页面标记和 DOM 监听
         this.remove_plugin_ui();

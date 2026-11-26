@@ -736,3 +736,220 @@ body.ss-cmd-dragging {
     background: var(--b3-theme-error);
     opacity: 1;
 }
+
+
+/* ==========================================================================
+   搜索结果树样式（由设置「搜索结果 → 树样式」切换）
+
+   原先这三套样式由 index.js 的 init_css_style() 拼成字符串注入到 <body>，
+   现在改为页面根节点上的 class 决定，规则随插件一起由 index.css 加载。
+   三套互斥，同一时刻只有一套的 class 存在。
+   ========================================================================== */
+
+/* 树样式: native_tree */
+/* 新增的文档树 */
+.HZ-sp-tree-native {
+    /* 竖线与父级竖线的距离 */
+    --HZ-sp-vertical-line-interval: 18px;
+    /* 结果与左边竖线的距离 */
+    --HZ-sp-search-res-pad-left: 22px;
+}
+.HZ-sp-tree-native #HZsimpleSearchList .simpleSearchListBody {
+    margin-left: var(--HZ-sp-vertical-line-interval);
+    &>.b3-list-item>.b3-list-item__graphic  {
+        margin-right: 0px;
+    }
+    &>div>[data-type="search-item"] {
+        padding-left: var(--HZ-sp-search-res-pad-left)!important;
+        &>.b3-list-item__graphic {
+            margin-right: 2px;
+        }
+    }
+}
+
+/* 树样式: colorful */
+/* 新增的文档树 */
+.HZ-sp-tree-colorful {
+    /* 竖线颜色 */
+    --HZ-sp-vertical-line-color-1: var(--b3-font-color7);
+    --HZ-sp-vertical-line-color-2: var(--b3-font-color6);
+    --HZ-sp-vertical-line-color-3: var(--b3-font-color9);
+    --HZ-sp-vertical-line-color-4: var(--b3-font-color11);
+    --HZ-sp-vertical-line-color-5: var(--b3-font-color7);
+    --HZ-sp-vertical-line-color-6: var(--b3-font-color6);
+    --HZ-sp-vertical-line-color-7: var(--b3-font-color9);
+    --HZ-sp-vertical-line-color-8: var(--b3-font-color11);
+    /* 竖线括号粗细 */
+    --HZ-sp-vertical-line-bracket-width: 2px;
+    /* 竖线括号圆角弧度 */
+    --HZ-sp-bracket-border-radius: 8px;
+    /* 竖线与父级竖线的距离 */
+    --HZ-sp-vertical-line-interval: 18px;
+    /* 结果与左边竖线的距离 */
+    --HZ-sp-search-res-pad-left: 2px;
+}
+.HZ-sp-tree-colorful #HZsimpleSearchList .simpleSearchListBody {
+    margin-left: var(--HZ-sp-vertical-line-interval);
+    border-top-left-radius: var(--HZ-sp-bracket-border-radius);
+    border-bottom-left-radius: var(--HZ-sp-bracket-border-radius);
+    &>div>[data-type="search-item"] {
+        padding-left: var(--HZ-sp-search-res-pad-left)!important;
+    }
+    .b3-list-item__toggle--hl {
+        margin-left: -2px;
+        margin-right: 2px;
+    }
+    border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-1);
+    .simpleSearchListBody {
+        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-2);
+    }
+    .simpleSearchListBody .simpleSearchListBody {
+        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-3);
+    }
+    .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody {
+        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-4);
+    }
+    .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody {
+        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-5);
+    }
+    .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody {
+        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-6);
+    }
+    .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody {
+        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-7);
+    }
+    .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody .simpleSearchListBody {
+        border-left: var(--HZ-sp-vertical-line-bracket-width) solid var(--HZ-sp-vertical-line-color-8);
+    }
+}
+
+/* 树样式: ediary */
+.HZ-sp-tree-ediary {
+    /* 竖线与父级竖线的距离 */
+    --HZ-sp-vertical-line-interval: 22px;
+    /* 结果与左边竖线的距离 */
+    --HZ-sp-search-res-pad-left: 26px;
+    /* 竖线颜色 */
+    --HZ-sp-vertical-line-color: var(--b3-theme-on-surface-light);
+}
+
+.HZ-sp-tree-ediary #HZsimpleSearchList .simpleSearchListBody {
+    margin-left: var(--HZ-sp-vertical-line-interval);
+
+    &>.b3-list-item {
+        margin-left: 6px;
+    }
+
+    &>.b3-list-item>.b3-list-item__graphic {
+        margin-right: 0px;
+    }
+
+    &>div>[data-type="search-item"] {
+        padding-left: var(--HZ-sp-search-res-pad-left) !important;
+
+        &>.b3-list-item__graphic {
+            margin-right: 2px;
+        }
+    }
+}
+
+.HZ-sp-tree-ediary #HZsimpleSearchList>.b3-list-item {
+    margin-left: 7px;
+}
+
+/*折叠按钮样式*/
+.HZ-sp-tree-ediary #HZsimpleSearchList .b3-list-item>.b3-list-item__toggle>svg {
+    background-color: var(--b3-theme-surface);
+    border: 1px solid var(--b3-theme-on-surface-light);
+    padding: 0px;
+    border-radius: 4px;
+    margin-right: 4px;
+}
+
+/*文档的折叠按钮, 图标要比虚线高一层 */
+.HZ-sp-tree-ediary #HZsimpleSearchList .b3-list-item__toggle>svg,
+.HZ-sp-tree-ediary #HZsimpleSearchList .b3-list-item__graphic {
+    z-index: 2;
+}
+
+/* L型的线 */
+.HZ-sp-tree-ediary #HZsimpleSearchList .simpleSearchListBody {
+    position: relative;
+}
+
+.HZ-sp-tree-ediary #HZsimpleSearchList .simpleSearchListBody::before {
+    content: "";
+    visibility: visible;
+    position: absolute;
+    left: 19px;
+    top: -7px;
+    width: 18px;
+    height: calc(100% - 7px);
+    background: transparent;
+    border-left: 1px dashed var(--HZ-sp-vertical-line-color);
+    border-bottom: 1px dashed var(--HZ-sp-vertical-line-color);
+    z-index: 1;
+}
+
+/* L型的线并不能完全覆盖, 剩下的由每个文档覆盖*/
+.HZ-sp-tree-ediary #HZsimpleSearchList .simpleSearchListBody .b3-list-item::before {
+    content: "";
+    visibility: visible;
+    position: absolute;
+    left: 13px;
+    width: 15px;
+    height: 1px;
+    background: transparent;
+    border-bottom: 1px dashed var(--HZ-sp-vertical-line-color);
+    z-index: 1;
+}
+
+/* ==========================================================================
+   历史 / 指令补全列表样式（与上面的树样式互相独立）
+
+   --HZ-sp-list-text-offset 由「列表包含历史图标」决定：
+   含图标时与搜索框文字(图标区36 + 输入区8)对齐，不含图标时面板右移让开图标区
+   ========================================================================== */
+.HZ-simple-search-page {
+    --HZ-sp-list-text-offset: 44px;
+}
+.HZ-simple-search-page.HZ-sp-list-no-icon {
+    --HZ-sp-list-text-offset: 16px;
+}
+
+/* 不含图标: 面板整体右移图标区宽度, 图标/箭头留在面板外;
+   输入文字内边距与条目缩进一致, 保证搜索框文字与列表条目文字对齐 */
+.HZ-sp-list-no-icon #searchInput.HZ-search-suggestion-open {
+    margin-left: 36px;
+    width: calc(100% - 36px);
+    padding-left: var(--HZ-sp-list-text-offset) !important;
+}
+
+/* 选中样式「经典」: 圆角浮起, 与边界留距, 无左蓝条;
+   左内边距要扣掉 8px 的左边距, 文字才能与搜索框文字对齐 */
+.HZ-sp-list-classic #simpleSearchHistoryList li.b3-list-item {
+    margin: 4px 8px;
+    border-radius: var(--b3-border-radius);
+    padding-left: calc(var(--HZ-sp-list-text-offset) - 8px);
+}
+.HZ-sp-list-classic #simpleSearchHistoryList li.b3-list-item:hover {
+    background-color: var(--b3-list-hover);
+}
+.HZ-sp-list-classic #simpleSearchHistoryList li.b3-list-item.b3-list-item--focus,
+.HZ-sp-list-classic #simpleSearchHistoryList li.b3-list-item.b3-list-item--focus:hover {
+    background-color: var(--b3-theme-primary-lightest);
+    box-shadow: none;
+}
+
+/* ==========================================================================
+   搜索页布局
+
+   .search__layout 是 flex:1 且 overflow:visible，结果多时它的 scrollHeight
+   会超过自身高度，让 .HZ-simple-search-page 也出现溢出；思源渲染结果后会调
+   scrollIntoView() 滚动所有可滚动祖先，于是顶部工具栏、搜索框、条件行被顶出
+   可视区，看起来像"前面固定的元素没了"。
+   这里裁掉溢出，让滚动只发生在结果列表内部。
+   ========================================================================== */
+.HZ-simple-search-page > .search__layout {
+    overflow: hidden !important;
+}
