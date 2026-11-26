@@ -260,7 +260,7 @@ const SYT = {
 // kv:     key 是前缀, value 是拼在后面的值(可为空, 表示由用户输入)
 // 配置版本使用插件版本号(与 plugin.json 的 version 一致, 测试会校验):
 // 发版后版本号变化即触发一次默认配置合并, 不需要单独维护自增版本
-const PLUGIN_VERSION = '1.3.7';
+const PLUGIN_VERSION = '1.4.0';
 // 搜索页根节点上的样式 class, 规则在 index.css 里, 这里只负责开关
 const STYLE_TREE_CLASS_MAP = {
     native_tree: 'HZ-sp-tree-native',
