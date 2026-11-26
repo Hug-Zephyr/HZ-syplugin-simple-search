@@ -3352,19 +3352,29 @@ class SimpleSearchHZ extends siyuan.Plugin {
             }
             this.completion_usage = merged;
             this._completion_usage_loaded = true;
+            // 记录载入后的内容作基线, 后续只在真正变化时才写盘
+            this._saved_usage_json = JSON.stringify(merged);
             if (this._completion_usage_dirty) this.schedule_completion_usage_save();
         }, () => {
             this._completion_usage_loaded = true;
+            this._saved_usage_json = JSON.stringify(this.completion_usage || {});
             if (this._completion_usage_dirty) this.schedule_completion_usage_save();
         });
+    }
+    // 写补全使用次数。内容没变就不写盘: 写插件存储会让内核通知其他前端实例重载本插件,
+    // 多个实例(如桌面端 + 伺服页)同时在线时会互相触发, 形成重载循环
+    save_completion_usage(content) {
+        if (content === this._saved_usage_json) return;
+        this._saved_usage_json = content;
+        const ret = this.saveData("completion_usage.json", content);
+        if (ret && ret.catch) ret.catch(e => mylog_error("保存补全使用次数失败", e));
     }
     schedule_completion_usage_save() {
         if (!this._completion_usage_loaded) return;
         clearTimeout(this._completion_usage_save_timer);
         this._completion_usage_save_timer = setTimeout(() => {
             this._completion_usage_dirty = false;
-            const ret = this.saveData("completion_usage.json", JSON.stringify(this.completion_usage));
-            if (ret && ret.catch) ret.catch(e => mylog_error("保存补全使用次数失败", e));
+            this.save_completion_usage(JSON.stringify(this.completion_usage));
         }, 500);
     }
     // 搜索页打开期间记录用到的补全形式, 页面关闭时每个形式统一 +1
@@ -3425,8 +3435,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // 未结算的会话也一起清掉, 避免关闭页面后又把计数加回来
         this._usage_session = new Map();
         clearTimeout(this._completion_usage_save_timer);
-        const ret = this.saveData("completion_usage.json", "{}");
-        if (ret && ret.catch) ret.catch(e => mylog_error("清空补全使用次数失败", e));
+        this.save_completion_usage("{}");
     }
     get_search_list() {
         return this.get_ele('#searchList');
@@ -3595,13 +3604,13 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 }
 
                 /* L型的线并不能完全覆盖, 剩下的由每个文档覆盖*/
-                #HZsimpleSearchList .simpleSearchListBody>.b3-list-item:not(:last-child)>.b3-list-item__toggle::before {
+                #HZsimpleSearchList .simpleSearchListBody .b3-list-item::before {
                     content: "";
                     visibility: visible;
                     position: absolute;
-                    left: 18px;
+                    left: 13px;
                     width: 15px;
-                    height: 13px;
+                    height: 1px;
                     background: transparent;
                     border-bottom: 1px dashed var(--HZ-sp-vertical-line-color);
                     z-index: 1;
@@ -3610,6 +3619,16 @@ class SimpleSearchHZ extends siyuan.Plugin {
         }
         // 列表相关的可选样式, 与搜索结果树样式互相独立, 无论 tree_style 命中与否都要注入
         css += this._get_list_style_css();
+        // 布局: 弹窗过矮时结果列表溢出的高度不要撑大整个搜索页。
+        // .search__layout 是 flex:1 且 overflow:visible, 结果多时它的 scrollHeight 会超过自身高度,
+        // 让 .HZ-simple-search-page 也出现溢出; 思源渲染结果后会调 scrollIntoView() 滚动所有可滚动祖先,
+        // 于是顶部工具栏、搜索框、条件行被顶出可视区, 看起来像"前面固定的元素没了"。
+        // 这里裁掉溢出, 让滚动只发生在结果列表内部
+        css += `
+            .HZ-simple-search-page > .search__layout {
+                overflow: hidden !important;
+            }
+        `;
         if (css) this.css = js_insert_css(css);
     }
     // 生成历史/补全列表的外观 CSS: 是否包含历史图标、选中样式
@@ -3934,10 +3953,11 @@ class SimpleSearchHZ extends siyuan.Plugin {
         nav_items.forEach(item => item.addEventListener('click', () => select_cat(item.dataset.cat)));
         select_cat(categories[0].id);
 
-        // 关于: 跳转至手册
+        // 关于: 在集市面板里打开本插件的手册, README 由集市渲染, 折叠块可正常展开
         dialog.element.querySelector('#simpleSearchAboutReadme')?.addEventListener('click', (event) => {
             event.stopPropagation();
-            window.open('https://gitee.com/Hug_Zephyr/HZ-syplugin-simple-search/blob/master/README.md', '_blank');
+            // siyuan:// 由思源接管: 已信任集市时直接定位到本插件手册页, 否则只打开集市
+            window.open(`siyuan://bazaar/plugins/${this.name}/readme-installed`);
             event.target.blur();
         });
 
@@ -4921,7 +4941,11 @@ class SimpleSearchHZ extends siyuan.Plugin {
         add_row("其他", list(cat_items('ext'), true));
 
         return `<div id="simpleSearchHelpTable">
-        <span style="font-size: 16px; font-weight:bold">简搜插件指令速查手册: </span><span> (按“设置 → 指令配置”生成; 拖动方框右下角可以调整显示区域)</span>
+        <div class="fn__flex" style="align-items:baseline;flex-wrap:wrap;gap:8px;">
+            <span style="font-size: 16px; font-weight:bold">简搜插件指令速查手册: </span>
+            <span style="flex:1;min-width:120px;">(按“设置 → 指令配置”生成; 拖动方框右下角可以调整显示区域)</span>
+            <button class="b3-button b3-button--outline" id="simpleSearchHelpReadme" style="flex-shrink:0;white-space:nowrap;font-size:12px;padding:2px 8px;">跳转至手册</button>
+        </div>
         <table><tbody>
         ${rows.join("\n        ")}
         </tbody></table>
@@ -4987,6 +5011,13 @@ class SimpleSearchHZ extends siyuan.Plugin {
         help_ele?.addEventListener('click', () => {
             if (!text_area) return;
             text_area.innerHTML = this.get_help_info_html();
+            // 手册是动态生成的, 里面的按钮要每次重新绑定
+            text_area.querySelector('#simpleSearchHelpReadme')?.addEventListener('click', (event) => {
+                event.stopPropagation();
+                // 与「设置 → 关于 → 跳转至手册」一致: 交给思源打开集市里的本插件手册页
+                window.open(`siyuan://bazaar/plugins/${this.name}/readme-installed`);
+                event.target.blur();
+            });
             // 开关状态与实际显示不一致时也补一次显示, 避免内容写进隐藏区域
             if (!this.g_setting.assist_sw || assist_area?.style.display === 'none') {
                 sw_ele?.click();
@@ -7043,6 +7074,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
                 }
                 this.g_setting.command_config = migrated;
             }
+            // 记录载入后的内容作基线, 后续只在真正变化时才写盘
+            this._saved_setting_json = JSON.stringify(this.g_setting);
             // 应用日志等级
             set_log_level(this.g_setting.log_level);
             func();
@@ -7051,7 +7084,12 @@ class SimpleSearchHZ extends siyuan.Plugin {
         });
     }
     save_plugin_setting(){
-        const ret = this.saveData("settings.json", JSON.stringify(this.g_setting));
+        const content = JSON.stringify(this.g_setting);
+        // 内容没变就不写盘: 写插件存储会让内核通知其他前端实例重载本插件,
+        // 多个实例(如桌面端 + 伺服页)同时在线时会互相触发, 形成重载循环
+        if (content === this._saved_setting_json) return;
+        this._saved_setting_json = content;
+        const ret = this.saveData("settings.json", content);
         if (ret && ret.catch) ret.catch(e => mylog_error("保存配置失败", e));
         mylog("保存配置: ", this.g_setting);
     }
@@ -7087,6 +7125,8 @@ class SimpleSearchHZ extends siyuan.Plugin {
         this.page_suggestion_states = new WeakMap(); // 每个搜索页各自的历史/补全手动开关状态
         this.query        = {type:"", val:"", keywords:[], help:{}}; // 解析后的内容 {type: 搜索类型, val: 搜索内容, keywords: 关键词}
         this.g_setting    = get_default_plugin_settings();
+        this._saved_setting_json = undefined; // 上次写盘的内容, 用于跳过无变化的保存
+        this._saved_usage_json   = undefined; // 补全使用次数上次写盘的内容, 同上
         this.load_completion_usage();
         this.load_plugin_setting(() => {
             this.save_plugin_setting();
@@ -7099,6 +7139,22 @@ class SimpleSearchHZ extends siyuan.Plugin {
         });
     }
 
+    // 其他前端实例写入了本插件的存储文件。
+    // 不实现这个方法时, 思源会把整个插件卸载重载(onDataChanged === Plugin.prototype.onDataChanged);
+    // 多个前端实例同时在线时, 任一方写存储都会让其他实例重载, 重载时的 onunload 又可能写存储,
+    // 从而互相触发形成重载循环。这里只按需重读数据, 不做整体重载。
+    onDataChanged(reason) {
+        if (window.siyuan.isPublish) return;
+        // 同步来源可能覆盖了配置, 重新载入; 其他实例的写入不影响本实例的运行时状态
+        if (reason !== 'sync') return;
+        this.load_plugin_setting(() => {
+            this.init_css_style();
+            this.update_assist_btn_visibility();
+            this.apply_assist_sw_ui();
+            this.update_recognized_summary();
+        });
+    }
+
     onunload() {
         if (window.siyuan.isPublish) return;
         this.uninit_css_style();
@@ -7108,8 +7164,7 @@ class SimpleSearchHZ extends siyuan.Plugin {
         // 立即落盘使用次数, 避免防抖计时器未触发
         clearTimeout(this._completion_usage_save_timer);
         if (this._completion_usage_loaded || this._completion_usage_dirty) {
-            const ret = this.saveData("completion_usage.json", JSON.stringify(this.completion_usage || {}));
-            if (ret && ret.catch) ret.catch(() => {});
+            this.save_completion_usage(JSON.stringify(this.completion_usage || {}));
         }
         mylog_info("HZ simple search stop...")
     }
